@@ -115,7 +115,7 @@
 #   config/herdr-presentation-spaces file can say off to disable it or on to
 #   opt in below that floor; an empty file remains the historical opt-in form.
 #   The value crew (or crew:<n>) instead places every crewmate or scout, and a
-#   reclaim of a gone endpoint, as a split pane in one recorded per-home crew
+#   reclaim of a gone endpoint, as a split pane in a recorded per-home crew
 #   workspace (docs/herdr-backend.md "Crew workspace").
 #   A clean fresh task first writes state/<id>.herdr-presentation atomically,
 #   then creates a disposable

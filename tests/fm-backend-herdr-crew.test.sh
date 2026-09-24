@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # tests/fm-backend-herdr-crew.test.sh - portable regressions for the Herdr crew
 # workspace layout (docs/herdr-backend.md "Crew workspace"): placement,
-# the 3x2 grid and its fill order, cap overflow into a new tab, exact-pane
-# cleanup with rebalance, and the workspace disappearing with its last pane.
+# the 3x2 grid and its fill order, cap overflow into a second crew workspace,
+# exact-pane cleanup with rebalance, and a workspace disappearing with its
+# last pane.
 # Drives bin/backends/herdr.sh against tests/herdr-crew-fake.py, a stateful
 # fake that models Herdr's split tree and layout socket, so no Herdr is needed.
 # tests/fm-backend-herdr-crew-workspace-e2e.test.sh is the real-Herdr twin.
@@ -148,32 +149,45 @@ test_six_tasks_fill_an_even_grid_top_row_first() {
   pass "herdr crew: six tasks fill an even 3x2 grid, top row left to right, then bottom row"
 }
 
-test_seventh_task_overflows_into_a_new_tab() {
-  local i ws tab pane crew_ws first_tab
+test_seventh_task_overflows_into_a_second_crew_workspace() {
+  local i ws tab pane crew_ws panes=() ws2 pane7 ws8
   crew_fixture overflow
   for i in 1 2 3 4 5 6; do
     read -r ws tab pane < <(place "fm-t$i") || fail "crew placement $i failed"
-    crew_ws=$ws; first_tab=$tab
+    crew_ws=$ws; panes[i]=$pane
   done
-  read -r ws tab pane < <(place fm-t7) || fail "seventh crew placement failed"
-  assert_equals "$crew_ws" "$ws" "the seventh task should stay in the crew workspace"
-  assert_not_equals "$first_tab" "$tab" "the seventh task should open a new tab once the first holds six"
-  assert_equals 1 "$(herdr_fake pane list --workspace "$ws" | jq --arg tab "$tab" '[.result.panes[] | select(.tab_id == $tab)] | length')" \
-    "the overflow tab should hold only the seventh pane"
-  pass "herdr crew: a seventh task overflows into a new tab of the same crew workspace"
+  read -r ws2 tab pane7 < <(place fm-t7) || fail "seventh crew placement failed"
+  assert_not_equals "$crew_ws" "$ws2" "the seventh task should open a second crew workspace once the first holds six"
+  assert_equals 1 "$(herdr_fake tab list --workspace "$crew_ws" | jq '.result.tabs | length')" \
+    "the full crew workspace should never gain a second tab"
+  assert_equals 1 "$(herdr_fake pane list --workspace "$ws2" | jq '.result.panes | length')" \
+    "the second crew workspace should hold only the seventh pane"
+  assert_equals "firstmate,firstmate-crew,firstmate-crew" "$(herdr_fake workspace list | jq -r '[.result.workspaces[].label] | join(",")')" \
+    "the second crew workspace carries the crew label and follows the first"
+  assert_equals "$crew_ws $ws2" "$(tr '\n' ' ' < "$(printf '%s' "$HOME_DIR"/state/.herdr-crew-workspace-*)" | sed 's/ $//')" \
+    "both crew workspace ids are recorded in order"
+  assert_equals 7 "$(adapter fm_backend_herdr_list_live crewlab | grep -c $'\tfm-t')" "list-live should report every crew pane in both workspaces"
+  adapter fm_backend_herdr_kill "crewlab:$pane7" || fail "kill of the seventh task failed"
+  assert_equals dead "$(adapter fm_backend_herdr_workspace_presence_state crewlab "$ws2")" \
+    "the second crew workspace should disappear with its last pane"
+  assert_equals 6 "$(herdr_fake pane list --workspace "$crew_ws" | jq '.result.panes | length')" "the first crew workspace keeps its six panes"
+  adapter fm_backend_herdr_kill "crewlab:${panes[2]}" || fail "kill of task 2 failed"
+  read -r ws8 tab pane < <(place fm-t8) || fail "refill placement failed"
+  assert_equals "$crew_ws" "$ws8" "a freed slot in the first crew workspace is refilled before another workspace opens"
+  pass "herdr crew: a seventh task overflows into a second crew workspace, which goes with its last pane"
 }
 
 test_configured_cap_overflows_earlier() {
-  local ws tab1 tab2 tab3 pane
+  local ws1 ws2 ws3 tab pane
   crew_fixture cap
-  read -r ws tab1 pane < <(place fm-a 2) || fail "crew placement a failed"
-  read -r ws tab2 pane < <(place fm-b 2) || fail "crew placement b failed"
-  assert_equals "$tab1" "$tab2" "a cap of two should put two tasks in one tab"
+  read -r ws1 tab pane < <(place fm-a 2) || fail "crew placement a failed"
+  read -r ws2 tab pane < <(place fm-b 2) || fail "crew placement b failed"
+  assert_equals "$ws1" "$ws2" "a cap of two should put two tasks in one crew workspace"
   assert_equals "0,0 60x40;60,0 60x40;" "$(cell "$pane" fm-a);$(cell "$pane" fm-b);" \
     "a cap of two should place its tasks side by side"
-  read -r ws tab3 pane < <(place fm-c 2) || fail "crew placement c failed"
-  assert_not_equals "$tab1" "$tab3" "a cap of two should overflow the third task into a new tab"
-  pass "herdr crew: a configured cap changes how many panes a crew tab holds"
+  read -r ws3 tab pane < <(place fm-c 2) || fail "crew placement c failed"
+  assert_not_equals "$ws1" "$ws3" "a cap of two should overflow the third task into another crew workspace"
+  pass "herdr crew: a configured cap changes how many panes a crew workspace holds"
 }
 
 # --- cleanup -------------------------------------------------------------------
@@ -283,7 +297,7 @@ test_missing_layout_api_still_places_with_a_warning() {
 test_preference_parses_the_crew_values
 test_first_task_creates_one_recorded_crew_workspace
 test_six_tasks_fill_an_even_grid_top_row_first
-test_seventh_task_overflows_into_a_new_tab
+test_seventh_task_overflows_into_a_second_crew_workspace
 test_configured_cap_overflows_earlier
 test_kill_closes_one_pane_among_several_and_rebalances
 test_freed_slot_is_refilled

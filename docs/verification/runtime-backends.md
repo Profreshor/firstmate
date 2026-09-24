@@ -1321,18 +1321,19 @@ Observed output on Herdr 0.9.1, identical apart from the version line on 0.7.4:
 # lab herdr server 0.9.1 protocol 22, client 0.9.1 protocol 22
 ok - real herdr: the first crew task creates one labeled crew workspace right after the home, without moving focus
 ok - real herdr: six crew panes fill an even 3x2 grid, top row left to right, then bottom row
-ok - real herdr: a seventh crew task overflows into a new tab of the same crew workspace
+ok - real herdr: a seventh crew task opens a second crew workspace right after the first, without moving focus
 ok - real herdr: list-live discovers crew panes by their task labels
 ok - real herdr: killing one crew pane closes only that pane and keeps focus
 ok - real herdr: the next crew task refills the freed slot and restores the even grid
 ok - real herdr: a same-labeled agent-free crew pane is replaced only after its successor exists
 ok - real herdr: closing a whole crew column rebalances the remaining columns evenly
-ok - real herdr: the crew workspace disappears with its last pane and is recreated on the next spawn
+ok - real herdr: each crew workspace disappears with its last pane and the next spawn recreates one
 ok - real herdr: real spawns on the crew setting become panes of one crew workspace
 ok - real herdr: real teardown closes one exact crew pane and the workspace goes with the last one
 ```
 
 Observed guarantees: rebalancing used only `layout.export` and `layout.set_split_ratio`, every task pane kept its id through each rebalance, the lab helper's default-session tripwire held, and a real spawn and cleanup pass on the `crew` setting placed and removed exact panes with no presentation journal.
+The second crew workspace was moved from the end of the session to the slot right after the first, ahead of an unrelated sibling workspace, which the ordering assertion distinguishes from Herdr's append order.
 
 ### Workspace-removal focus safety
 

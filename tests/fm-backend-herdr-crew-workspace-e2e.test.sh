@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Real-Herdr regression for the crew workspace layout (docs/herdr-backend.md
-# "Crew workspace"): every task of a home becomes a split pane in one recorded
+# "Crew workspace"): every task of a home becomes a split pane in a recorded
 # crew workspace, filling an even 3-column by 2-row grid top row first, then
-# a new tab, while cleanup closes one exact pane, rebalances the rest, and the
-# workspace disappears with its last pane.
+# a second crew workspace right after the first, while cleanup closes one
+# exact pane, rebalances the rest, and a workspace disappears with its last
+# pane.
 # Every Herdr call goes through the guarded named-session lab helper.
 set -u
 
@@ -163,11 +164,15 @@ read -r Y0 Y1 <<<"$YS"
   || fail "crew panes did not fill the top row left to right, then the bottom row: $EXPECT"
 pass 'real herdr: six crew panes fill an even 3x2 grid, top row left to right, then bottom row'
 
-read -r WS TAB7 "PANES[7]" < <(place fm-t7) || fail 'could not place the seventh crew task'
-[ "$WS" = "$CREW_WS" ] && [ "$TAB7" != "$CREW_TAB" ] || fail "the seventh crew task should open a new tab in the crew workspace, got $WS $TAB7"
-[ "$(lab pane list --workspace "$CREW_WS" | jq --arg tab "$TAB7" '[.result.panes[] | select(.tab_id == $tab)] | length')" = 1 ] \
-  || fail 'the overflow tab should hold exactly the seventh pane'
-pass 'real herdr: a seventh crew task overflows into a new tab of the same crew workspace'
+read -r CREW_WS2 _ "PANES[7]" < <(place fm-t7) || fail 'could not place the seventh crew task'
+[ -n "$CREW_WS2" ] && [ "$CREW_WS2" != "$CREW_WS" ] || fail "the seventh crew task should open a second crew workspace, got $CREW_WS2"
+[ "$(lab tab list --workspace "$CREW_WS" | jq '.result.tabs | length')" = 1 ] || fail 'the full crew workspace should never gain a second tab'
+[ "$(lab pane list --workspace "$CREW_WS2" | jq '.result.panes | length')" = 1 ] || fail 'the second crew workspace should hold exactly the seventh pane'
+ORDER=$(lab workspace list | jq -r --arg c1 "$CREW_WS" --arg c2 "$CREW_WS2" \
+  '[.result.workspaces[] | .workspace_id as $id | if $id == $c1 then "crew1" elif $id == $c2 then "crew2" else .label end] | join(",")')
+[ "$ORDER" = "firstmate,crew1,crew2,other" ] || fail "the second crew workspace should sit right after the first, got $ORDER"
+[ "$(focused)" = "$FOCUS_BEFORE" ] || fail 'opening the second crew workspace moved the focused workspace'
+pass 'real herdr: a seventh crew task opens a second crew workspace right after the first, without moving focus'
 
 LIVE=$(adapter fm_backend_herdr_list_live "$HERDR_LAB_SESSION")
 [ "$(printf '%s\n' "$LIVE" | grep -c $'\tfm-t')" = 7 ] || fail "list-live should report all seven crew panes, got: $LIVE"
@@ -208,12 +213,14 @@ for i in 1 2 4 7 8; do
 done
 [ "$(adapter fm_backend_herdr_workspace_presence_state "$HERDR_LAB_SESSION" "$CREW_WS")" = dead ] \
   || fail 'the crew workspace should disappear with its last pane'
+[ "$(adapter fm_backend_herdr_workspace_presence_state "$HERDR_LAB_SESSION" "$CREW_WS2")" = dead ] \
+  || fail 'the second crew workspace should disappear with its last pane'
 [ "$(focused)" = "$FOCUS_BEFORE" ] || fail 'emptying the crew workspace moved the focused workspace'
 read -r WS TAB _ < <(place fm-t9) || fail 'could not place a crew task after the crew workspace emptied'
 [ -n "$WS" ] && [ "$WS" != "$CREW_WS" ] || fail 'a new crew workspace should be created after the old one emptied'
 [ "$(lab workspace list | jq -r '[.result.workspaces[].label] | join(",")')" = "firstmate,firstmate-crew,other" ] \
   || fail 'the recreated crew workspace should again sit right after the home'
-pass 'real herdr: the crew workspace disappears with its last pane and is recreated on the next spawn'
+pass 'real herdr: each crew workspace disappears with its last pane and the next spawn recreates one'
 
 # The same layout through the real spawn and teardown scripts: a home whose
 # config selects "crew" gets its crewmates as panes of one crew workspace, and

@@ -114,6 +114,9 @@
 #   selected client and running server meet the Herdr 0.8.0 floor. The local
 #   config/herdr-presentation-spaces file can say off to disable it or on to
 #   opt in below that floor; an empty file remains the historical opt-in form.
+#   The value crew (or crew:<n>) instead places every crewmate or scout, and a
+#   reclaim of a gone endpoint, as a split pane in one recorded per-home crew
+#   workspace (docs/herdr-backend.md "Crew workspace").
 #   A clean fresh task first writes state/<id>.herdr-presentation atomically,
 #   then creates a disposable
 #   workspace containing only the ordinary task pane. A successful clean create
@@ -3185,6 +3188,44 @@ freshen_spawn_worktree_base() { # <worktree>
   fi
 }
 
+# Place this task as a pane in the home's Herdr crew workspace in <session>
+# (docs/herdr-backend.md "Crew workspace"), under the shared session lock that
+# the successful launch releases, and publish the exact endpoint ids. The
+# launcher's own workspace, when it resolves exactly, only orders a newly
+# created crew workspace; it never decides placement. Exits on failure after
+# arming abort cleanup of the exact new pane.
+herdr_spawn_crew_place() { # <session> <pane-cap> <cwd> [<launcher-pane-id>]
+  local session=$1 cap=$2 cwd=$3 launcher_pane=${4-${HERDR_PANE_ID:-}} parent_ws=""
+  fm_backend_herdr_version_check || exit 1
+  fm_backend_herdr_server_ensure "$session" || exit 1
+  spawn_herdr_presentation_order_lock_acquire "$session" || {
+    echo "error: herdr crew workspace placement could not acquire its session lock; refusing a concurrent placement" >&2
+    exit 1
+  }
+  if HERDR_PANE_ID="$launcher_pane" fm_backend_herdr_launcher_identity "$session" 2>/dev/null; then
+    parent_ws=$FM_BACKEND_HERDR_LAUNCHER_WORKSPACE_ID
+  fi
+  if ! FM_HOME="${HERDR_LABEL_HOME:-$FM_HOME}" fm_backend_herdr_crew_create_task \
+    "$session" "$STATE" "$cwd" "$W" "$cap" "$parent_ws"; then
+    if [ -n "$FM_BACKEND_HERDR_CREW_PANE_ID" ]; then
+      HERDR_PROJECTION_ABORT_CLEANUP=1
+      HERDR_PROJECTION_ABORT_SESSION=$session
+      HERDR_PROJECTION_ABORT_TASK_PANE=$FM_BACKEND_HERDR_CREW_PANE_ID
+      HERDR_PROJECTION_ABORT_SEEDED_PANE=""
+    fi
+    exit 1
+  fi
+  HERDR_SES=$session
+  HERDR_WORKSPACE_ID=$FM_BACKEND_HERDR_CREW_WORKSPACE_ID
+  HERDR_SEEDED_DEFAULT_TAB_ID=""
+  HERDR_TAB_ID=$FM_BACKEND_HERDR_CREW_TAB_ID
+  HERDR_PANE_ID=$FM_BACKEND_HERDR_CREW_PANE_ID
+  HERDR_PROJECTION_ABORT_CLEANUP=1
+  HERDR_PROJECTION_ABORT_SESSION=$session
+  HERDR_PROJECTION_ABORT_TASK_PANE=$HERDR_PANE_ID
+  HERDR_PROJECTION_ABORT_SEEDED_PANE=""
+}
+
 herdr_projection_meta_field_exact() { # <meta> <key>
   local meta=$1 key=$2 count
   [ -f "$meta" ] && [ ! -L "$meta" ] || return 1
@@ -3360,42 +3401,53 @@ if [ "$RELAUNCH" -eq 1 ]; then
     # onto another herdr server - an identity change, published as a
     # self-consistent but wrong record.
     HERDR_REBIND_SES=${RELAUNCH_TARGET%%:*}
-    HERDR_CONTAINER_RAW=$(HERDR_PANE_ID="$RELAUNCH_LAUNCHER_PANE_ID" \
-      fm_backend_herdr_container_ensure "$PROJ_ABS" launcher-home "$HERDR_REBIND_SES") || {
-      # container_ensure returns 1 for several unrelated reasons - a failed
-      # version check, a server that will not start, an ambiguous workspace
-      # label, a cross-session launcher identity, a failed workspace create -
-      # and each already printed its own accurate message. Add only what this
-      # layer actually knows, and name the session mismatch solely when there
-      # IS one, rather than asserting a cause this condition cannot establish.
-      #
-      # A seat with NO herdr pane never reaches the cross-session guard at all:
-      # fm_backend_herdr_launcher_identity returns 2 for it and the placement
-      # falls back to the recorded session's labeled container, which is what
-      # makes a plain ssh or cron reclaim work. Its ambient session still reads
-      # `default` (fm_backend_herdr_session's fallback), so the inequality alone
-      # would fire for EVERY named-session task reclaimed from a plain shell and
-      # send the operator chasing a session mismatch that was never the cause.
-      HERDR_AMBIENT_SES=$(fm_backend_herdr_session)
-      if [ -n "$RELAUNCH_LAUNCHER_PANE_ID" ] && [ "$HERDR_AMBIENT_SES" != "$HERDR_REBIND_SES" ]; then
-        echo "error: task $ID's endpoint could not be re-created in its recorded herdr session '$HERDR_REBIND_SES'; this seat is running in herdr session '$HERDR_AMBIENT_SES', and a reclaim never moves a task to another session" >&2
-      else
-        echo "error: task $ID's endpoint could not be re-created in its recorded herdr session '$HERDR_REBIND_SES'; see the refusal above for what failed" >&2
-      fi
-      exit 1
-    }
-    CONTAINER=${HERDR_CONTAINER_RAW%%$'\t'*}
-    HERDR_SEEDED_DEFAULT_TAB_ID=${HERDR_CONTAINER_RAW#*$'\t'}
-    HERDR_SES=${CONTAINER%%:*}
-    HERDR_WORKSPACE_ID=${CONTAINER#*:}
-    HERDR_TASK_IDS=$(fm_backend_herdr_create_task "$CONTAINER" "$W" "$WT" "$HERDR_SEEDED_DEFAULT_TAB_ID") || exit 1
-    read -r HERDR_TAB_ID HERDR_PANE_ID <<EOF
+    # A home on the crew layout reclaims into its crew workspace instead, in
+    # the same recorded session.
+    HERDR_REBIND_PREFERENCE=$(fm_backend_herdr_presentation_preference "$CONFIG")
+    case "$HERDR_REBIND_PREFERENCE" in
+    crew:*)
+      herdr_spawn_crew_place "$HERDR_REBIND_SES" "${HERDR_REBIND_PREFERENCE#crew:}" "$WT" "$RELAUNCH_LAUNCHER_PANE_ID"
+      HERDR_PROJECTED=1
+      ;;
+    *)
+      HERDR_CONTAINER_RAW=$(HERDR_PANE_ID="$RELAUNCH_LAUNCHER_PANE_ID" \
+        fm_backend_herdr_container_ensure "$PROJ_ABS" launcher-home "$HERDR_REBIND_SES") || {
+        # container_ensure returns 1 for several unrelated reasons - a failed
+        # version check, a server that will not start, an ambiguous workspace
+        # label, a cross-session launcher identity, a failed workspace create -
+        # and each already printed its own accurate message. Add only what this
+        # layer actually knows, and name the session mismatch solely when there
+        # IS one, rather than asserting a cause this condition cannot establish.
+        #
+        # A seat with NO herdr pane never reaches the cross-session guard at all:
+        # fm_backend_herdr_launcher_identity returns 2 for it and the placement
+        # falls back to the recorded session's labeled container, which is what
+        # makes a plain ssh or cron reclaim work. Its ambient session still reads
+        # `default` (fm_backend_herdr_session's fallback), so the inequality alone
+        # would fire for EVERY named-session task reclaimed from a plain shell and
+        # send the operator chasing a session mismatch that was never the cause.
+        HERDR_AMBIENT_SES=$(fm_backend_herdr_session)
+        if [ -n "$RELAUNCH_LAUNCHER_PANE_ID" ] && [ "$HERDR_AMBIENT_SES" != "$HERDR_REBIND_SES" ]; then
+          echo "error: task $ID's endpoint could not be re-created in its recorded herdr session '$HERDR_REBIND_SES'; this seat is running in herdr session '$HERDR_AMBIENT_SES', and a reclaim never moves a task to another session" >&2
+        else
+          echo "error: task $ID's endpoint could not be re-created in its recorded herdr session '$HERDR_REBIND_SES'; see the refusal above for what failed" >&2
+        fi
+        exit 1
+      }
+      CONTAINER=${HERDR_CONTAINER_RAW%%$'\t'*}
+      HERDR_SEEDED_DEFAULT_TAB_ID=${HERDR_CONTAINER_RAW#*$'\t'}
+      HERDR_SES=${CONTAINER%%:*}
+      HERDR_WORKSPACE_ID=${CONTAINER#*:}
+      HERDR_TASK_IDS=$(fm_backend_herdr_create_task "$CONTAINER" "$W" "$WT" "$HERDR_SEEDED_DEFAULT_TAB_ID") || exit 1
+      read -r HERDR_TAB_ID HERDR_PANE_ID <<EOF
 $HERDR_TASK_IDS
 EOF
-    if [ -z "$HERDR_TAB_ID" ] || [ -z "$HERDR_PANE_ID" ]; then
-      echo "error: herdr did not return a tab/pane id for $W" >&2
-      exit 1
-    fi
+      if [ -z "$HERDR_TAB_ID" ] || [ -z "$HERDR_PANE_ID" ]; then
+        echo "error: herdr did not return a tab/pane id for $W" >&2
+        exit 1
+      fi
+      ;;
+    esac
     T="$HERDR_SES:$HERDR_PANE_ID"
     SES=$HERDR_SES
     WT_TARGET=$T
@@ -3560,6 +3612,18 @@ else
           echo "warning: herdr presentation focus lock unavailable; using the ordinary flat layout without projection" >&2
         fi
       fi
+    fi
+    if [ "$HERDR_PROJECTED" -ne 1 ] && [ "$KIND" != secondmate ]; then
+      case "${FM_BACKEND_HERDR_PRESENTATION_PREFERENCE:-}" in
+      crew:*)
+        # The crew layout: a split pane in this home's one crew workspace
+        # (docs/herdr-backend.md "Crew workspace"). It shares the projection's
+        # session lock, abort cleanup of the exact new pane, and lock release
+        # after launch, so HERDR_PROJECTED also covers it below.
+        herdr_spawn_crew_place "$(fm_backend_herdr_session)" "${FM_BACKEND_HERDR_PRESENTATION_PREFERENCE#crew:}" "$PROJ_ABS"
+        HERDR_PROJECTED=1
+        ;;
+      esac
     fi
     if [ "$HERDR_PROJECTED" -ne 1 ]; then
       HERDR_CONTAINER_RAW=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_container_ensure "$PROJ_ABS" "$HERDR_LAUNCHER_RELATIONSHIP") || exit 1

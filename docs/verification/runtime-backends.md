@@ -1306,6 +1306,34 @@ HERDR_LAB_HELPER=bin/fm-herdr-lab.sh \
 
 Observed guarantee: one exact home-local, journal-correlated, one-tab and one-pane childless idle shell was closed after restoration while the exact non-target focus and default fleet session remained unchanged, and a repeat run was a no-op.
 
+### Crew workspace
+
+The crew-workspace suite ran on 2026-09-24 on Linux x86_64 against Herdr 0.9.1 protocol 22 and again against Herdr 0.7.4 protocol 16, with the 0.7.4 run using the pinned upstream release binary first on `PATH`:
+
+```sh
+HERDR_LAB_HELPER=bin/fm-herdr-lab.sh \
+  tests/fm-backend-herdr-crew-workspace-e2e.test.sh
+```
+
+Observed output on Herdr 0.9.1, identical apart from the version line on 0.7.4:
+
+```text
+# lab herdr server 0.9.1 protocol 22, client 0.9.1 protocol 22
+ok - real herdr: the first crew task creates one labeled crew workspace right after the home, without moving focus
+ok - real herdr: six crew panes fill an even 3x2 grid, top row left to right, then bottom row
+ok - real herdr: a seventh crew task overflows into a new tab of the same crew workspace
+ok - real herdr: list-live discovers crew panes by their task labels
+ok - real herdr: killing one crew pane closes only that pane and keeps focus
+ok - real herdr: the next crew task refills the freed slot and restores the even grid
+ok - real herdr: a same-labeled agent-free crew pane is replaced only after its successor exists
+ok - real herdr: closing a whole crew column rebalances the remaining columns evenly
+ok - real herdr: the crew workspace disappears with its last pane and is recreated on the next spawn
+ok - real herdr: real spawns on the crew setting become panes of one crew workspace
+ok - real herdr: real teardown closes one exact crew pane and the workspace goes with the last one
+```
+
+Observed guarantees: rebalancing used only `layout.export` and `layout.set_split_ratio`, every task pane kept its id through each rebalance, the lab helper's default-session tripwire held, and a real spawn and cleanup pass on the `crew` setting placed and removed exact panes with no presentation journal.
+
 ### Workspace-removal focus safety
 
 The focus-flash regression ran on 2026-08-05 against both Herdr 0.7.5 protocol 17 and Herdr 0.8.0 protocol 19 on macOS aarch64, with the 0.7.5 run using the pinned upstream release binary first on `PATH`:

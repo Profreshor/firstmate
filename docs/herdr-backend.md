@@ -82,6 +82,7 @@ Closing its last tab can remove the workspace, and the next spawn recreates it.
 
 Each new crewmate or scout is placed in a disposable one-task workspace by default, on Herdr 0.8.0 and newer.
 A home opts out by writing `off` into local gitignored `config/herdr-presentation-spaces`, and forces the projection on by writing `on`.
+The value `crew` selects shared per-home crew workspaces of task panes, owned by [Crew workspace](#crew-workspace), instead of one workspace per task.
 An absent file leaves the choice to the version floor below, an empty file and the value `on` are both a deliberate opt-in, values are compared with whitespace stripped and case ignored, and an unrecognized value warns and follows the unconfigured default rather than failing a spawn over a purely visual setting.
 The empty file is the historical presence-based opt-in form, so every home that had already enabled the projection stays enabled with no migration step, and no previously enabled home can be turned off by the default or by the floor.
 A home that never created the file gains the projection at its next Herdr spawn on a supported release; that flip is deliberate, and it reaches only the Herdr backend because no other runtime backend has a projection path.
@@ -187,6 +188,34 @@ Operational compromises:
 `tests/fm-backend-herdr-focus-flash-e2e.test.sh` reproduces the raw explicit-close focus steal on the installed release and proves the focus-safe emptying-close plan removes a doomed workspace with no wrong-focus interval; [`verification/runtime-backends.md`](verification/runtime-backends.md#workspace-removal-focus-safety) owns the active versioned evidence.
 `tests/fm-backend-herdr-stale-active-tab-e2e.test.sh` proves a persisted-focused tab still closes when no foreground client is attached.
 `tests/fm-herdr-attached-viewer-live-e2e.test.sh` proves the other half against a real attached viewer, which `bin/fm-herdr-lab.sh viewer start` supplies over a pty sized before the fork; [`verification/runtime-backends.md`](verification/runtime-backends.md#attached-foreground-viewer) owns the active versioned evidence and the re-run trigger.
+
+## Crew workspace
+
+A home that writes `crew` into `config/herdr-presentation-spaces` keeps its own workspace for the Firstmate agent alone and places every new crewmate or scout, and every reclaim of a gone endpoint, as a split pane in a durable per-home crew workspace labeled `<home-label>-crew`.
+`crew:<n>` sets the per-workspace pane cap to any value from 1 to 16; plain `crew` means `crew:6`.
+The crew value is not gated by the presentation version floor because an ordinary task cleanup closes one pane, not a workspace.
+Secondmate agents keep their ordinary placement, and a secondmate home that inherits the value gets its own crew workspace under its own home label.
+
+The first crew workspace is created on first use with focus preserved and ordered immediately after the home's workspace on a best-effort basis.
+A placement takes the first crew workspace holding fewer panes than the cap, so a freed slot is refilled before anything new opens.
+When every crew workspace is full, the task becomes the first pane of another crew workspace, a fresh grid ordered right after the last one; a crew workspace never gains a second tab.
+Crew workspace ids are recorded in `state/.herdr-crew-workspace-<session>`, and a recorded id is reused only while that workspace still exists with the expected crew label, so a relabeled or recycled workspace is never adopted and a label alone never selects placement.
+
+With the default cap the panes form an even grid of 3 columns by 2 rows, filled top row left to right and then bottom row left to right; a cap of 3 or less is a single row, and a larger cap uses half the cap, rounded up, as the column count.
+Each new pane splits the rightmost full-height pane to the right until the row has its columns, then splits the leftmost full-height pane down.
+After every split and every crew pane cleanup, Firstmate evens out that workspace's split ratios with Herdr's `layout.set_split_ratio`, which resizes panes without restarting them, and never sends `layout.apply`, which recreates every pane.
+A later placement into a freed slot fills the gap the closed pane left.
+When a whole column closes while the other columns still hold two rows, the remaining columns are evened out and each later pane splits the largest pane along its longer side, so that workspace stays even but may not return to the exact 3 by 2 shape until its panes turn over.
+Rebalancing needs Python 3 and a Herdr that advertises both layout methods; without them placement and cleanup still work, the split halves the chosen pane, and a warning names the skipped rebalance.
+
+Placement runs under the same per-session presentation lock as the projection, and lock contention refuses the spawn rather than guessing.
+A live pane that already carries the task label refuses a duplicate launch, while an exited husk with that label is closed only after the replacement pane exists.
+A failure after the new pane exists closes that exact pane, and a crew placement writes no presentation journal.
+Cleanup closes only the task's exact pane through the ordinary exact-identity kill path and its focus-safe removal plan, so each crew workspace disappears with its last pane and a new one is created when a placement finds no room.
+List-live reports the home's crew panes alongside its home-workspace tabs, and a bare selector that matches no tab label falls back to an exact pane label, so recovery, send, capture, and turn-end detection use the recorded pane endpoint exactly as they do for a tab.
+
+`tests/fm-backend-herdr-crew.test.sh` pins parsing, first creation, grid fill, overflow, custom caps, cleanup rebalance, refill, recreation, record verification, duplicate refusal, list-live, and the no-layout-API fallback against a stateful fake.
+`tests/fm-backend-herdr-crew-workspace-e2e.test.sh` proves the same behavior and a real spawn and cleanup pass in a guarded named lab; [`verification/runtime-backends.md`](verification/runtime-backends.md#crew-workspace) owns the active versioned evidence.
 
 ## Default-tab prune safety
 
@@ -356,6 +385,7 @@ Tests use thin compatibility wrappers in `tests/herdr-test-safety.sh` and never 
 ## Active limits
 
 - Presentation ordering needs protocol 16 and Python and is best-effort only.
+- Crew grid rebalancing needs Python 3 and Herdr's layout methods, and a whole-column close leaves that crew workspace even but not always in its exact grid shape.
 - Mutable labels can collide; they are never placement or destructive authority.
 - A Firstmate outside Herdr cannot resolve a launcher workspace, so a colliding home label refuses new spawns until the collision is cleared.
 - Ghost and placeholder recognition uses ANSI de-emphasis when available; an unstyled glyph row carrying trailing non-idle text fails safely to `unknown`.
@@ -374,6 +404,8 @@ tests/fm-backend-herdr-respawn-idem-e2e.test.sh
 tests/fm-backend-herdr-workspace-per-home-e2e.test.sh
 tests/fm-backend-herdr-launcher-workspace-e2e.test.sh
 tests/fm-backend-herdr-presentation-e2e.test.sh
+tests/fm-backend-herdr-crew.test.sh
+tests/fm-backend-herdr-crew-workspace-e2e.test.sh
 tests/fm-backend-herdr-agent-exit-shell-e2e.test.sh
 tests/fm-herdr-pi-stale-registration-live-e2e.test.sh
 tests/fm-backend-herdr-eventwait-smoke.test.sh

@@ -17,8 +17,9 @@
 # FIRSTMATE HOME (the primary, and each secondmate, gets its own), ONE herdr TAB
 # per task inside its home's workspace. The default-on presentation projection
 # creates a disposable workspace for a clean fresh task instead unless the home
-# opts out. That
-# workspace is a non-authoritative visual projection containing only the normal
+# opts out, and a home that selects "crew" places each task as a split pane in
+# durable per-home crew workspaces instead (fm_backend_herdr_crew_create_task).
+# A projected workspace is a non-authoritative visual projection containing only the normal
 # task pane. Its random token and mutable label never authorize lookup,
 # adoption, reuse, closure, deletion, task ownership, or endpoint selection.
 # A version 2 journal can participate in replacing only its exact same-identity
@@ -150,13 +151,22 @@ FM_BACKEND_HERDR_SECONDMATE_MARKER=".fm-secondmate-home"
 FM_BACKEND_HERDR_PRESENTATION_JOURNAL_SUFFIX=".herdr-presentation"
 
 # The config item a home writes to opt out of, or explicitly in to, the
-# projection.
+# projection, or to select the shared crew workspace instead.
 FM_BACKEND_HERDR_PRESENTATION_CONFIG="herdr-presentation-spaces"
+# Crew layout: every crewmate and scout of a home becomes one split pane in a
+# durable per-home crew workspace, at most this many panes per workspace
+# before another crew workspace opens right after it. The workspace ids are
+# recorded per named session in the home's state dir under this prefix, so
+# placement never trusts a label.
+FM_BACKEND_HERDR_CREW_PANE_CAP_DEFAULT=6
+FM_BACKEND_HERDR_CREW_RECORD_PREFIX=".herdr-crew-workspace-"
 
 # fm_backend_herdr_presentation_preference <config-dir>: the single owner of
 # config/herdr-presentation-spaces parsing. Echoes exactly one of "off", "on"
-# (a deliberate opt-in, honored even below the version floor), or "default"
-# (this home configured nothing, so the floor decides).
+# (a deliberate opt-in, honored even below the version floor), "crew:<cap>"
+# (shared crew workspaces, split panes capped at <cap> per workspace: "crew"
+# alone means the default cap, "crew:<n>" sets it), or "default" (this home
+# configured nothing, so the floor decides).
 # Values are read with the whole-file whitespace-stripped convention the other
 # scalar config items already use (config/backlog-backend, config/crew-harness),
 # plus case folding. An empty file is the historical presence-based opt-in form
@@ -173,8 +183,10 @@ fm_backend_herdr_presentation_preference() {  # <config-dir>
   case "$value" in
     off) printf 'off\n' ;;
     ''|on) printf 'on\n' ;;
+    crew) printf 'crew:%s\n' "$FM_BACKEND_HERDR_CREW_PANE_CAP_DEFAULT" ;;
+    crew:[1-9]|crew:1[0-6]) printf '%s\n' "$value" ;;
     *)
-      echo "warning: $file: unrecognized value \"$value\"; herdr presentation spaces fall back to the default (write \"off\" to opt out, \"on\" to force the projection on)" >&2
+      echo "warning: $file: unrecognized value \"$value\"; herdr presentation spaces fall back to the default (write \"off\" to opt out, \"on\" to force the projection on, \"crew\" or \"crew:<1-16>\" for shared crew workspaces of split panes)" >&2
       printf 'default\n'
       ;;
   esac
@@ -326,8 +338,10 @@ fm_backend_herdr_presentation_default_supported() {  # <state-dir> [<session>]
 # fm_backend_herdr_presentation_enabled <config-dir> [<state-dir>]: the one gate
 # bin/fm-spawn.sh consults before projecting this home's children into
 # disposable one-task workspaces (docs/herdr-backend.md "Presentation spaces"
-# owns the full contract). An explicit "off" or "on" is obeyed as written; a
-# home that configured nothing is projected only at or above the version floor,
+# owns the full contract). An explicit "off" or "on" is obeyed as written, and
+# "crew:<cap>" is never a per-task projection (the caller reads the
+# out-parameter below to take the crew path instead); a home that configured
+# nothing is projected only at or above the version floor,
 # and otherwise falls back to the flat layout with one warning. Sets
 # FM_BACKEND_HERDR_PRESENTATION_PREFERENCE for the new-projection boundary to
 # distinguish an unconfigured default from an explicit opt-in.
@@ -338,7 +352,7 @@ fm_backend_herdr_presentation_enabled() {  # <config-dir> [<state-dir>]
   # shellcheck disable=SC2034
   FM_BACKEND_HERDR_PRESENTATION_PREFERENCE=$preference
   case "$preference" in
-    off) return 1 ;;
+    off|crew:*) return 1 ;;
     on) return 0 ;;
   esac
   fm_backend_herdr_presentation_default_supported "$state_dir"
@@ -2637,6 +2651,258 @@ fm_backend_herdr_projection_cleanup_exact() {  # <session> <task-pane> <seeded-p
   fi
 }
 
+# --- crew layout: durable per-home workspaces of split task panes -----------
+#
+# docs/herdr-backend.md "Crew workspace" owns the contract. Every crewmate and
+# scout of a home that selected "crew" becomes one split pane in that home's
+# crew workspace, up to the configured cap, then the first pane of another
+# crew workspace ordered right after the last one. A crew workspace is found
+# again only through its exact id recorded in this home's state dir,
+# re-verified against the live session and its expected label, so a label
+# never places a worker. Cleanup needs nothing
+# crew-specific: fm_backend_herdr_kill closes the exact recorded pane under the
+# session lock, and closing a workspace's last pane removes it through the same
+# focus-safe emptying-close plan every other layout uses.
+
+fm_backend_herdr_crew_workspace_label() {
+  printf '%s-crew' "$(fm_backend_herdr_workspace_label)"
+}
+
+fm_backend_herdr_crew_record_path() {  # <state-dir> <session>
+  printf '%s/%s%s' "$1" "$FM_BACKEND_HERDR_CREW_RECORD_PREFIX" "${2//[^A-Za-z0-9_-]/_}"
+}
+
+# fm_backend_herdr_crew_workspace_recorded: echo this home's recorded crew
+# workspace ids for <session>, one per line in the session's workspace order,
+# keeping only ids still present there with this home's crew label; echo
+# nothing when there is no usable record, which includes workspaces Herdr
+# removed with their last pane. Returns 1 when the session's workspaces cannot
+# be read, so an unreadable layout refuses instead of minting another crew
+# workspace. Never mutates.
+fm_backend_herdr_crew_workspace_recorded() {  # <state-dir> <session>
+  local state=$1 session=$2 record ids list
+  record=$(fm_backend_herdr_crew_record_path "$state" "$session")
+  { [ -f "$record" ] && [ ! -L "$record" ]; } || return 0
+  ids=$(jq -R -s -c 'split("\n") | map(select(length > 0))' < "$record" 2>/dev/null) || return 0
+  [ "$ids" != '[]' ] || return 0
+  list=$(fm_backend_herdr_cli "$session" workspace list 2>/dev/null) || return 1
+  printf '%s' "$list" | jq -e '(.result.workspaces | type) == "array"' >/dev/null 2>&1 || return 1
+  printf '%s' "$list" | jq -r --argjson ids "$ids" --arg want "$(fm_backend_herdr_crew_workspace_label)" '
+    .result.workspaces[] | select(.label == $want and (.workspace_id as $ws | $ids | any(. == $ws))) | .workspace_id
+  ' 2>/dev/null
+}
+
+fm_backend_herdr_crew_record_write() {  # <state-dir> <session> <workspace-id>...
+  local state=$1 record tmp
+  record=$(fm_backend_herdr_crew_record_path "$state" "$2")
+  shift 2
+  mkdir -p "$state" || return 1
+  tmp=$(mktemp "$record.XXXXXX") || return 1
+  if ! { printf '%s\n' "$@" > "$tmp" && mv -f "$tmp" "$record"; }; then
+    rm -f "$tmp"
+    return 1
+  fi
+}
+
+# fm_backend_herdr_crew_grid_columns <pane-cap>: the crew tab's grid width.
+# Up to three panes sit side by side; a larger cap uses two rows, so the
+# default cap of 6 is a grid of 3 columns by 2 rows.
+fm_backend_herdr_crew_grid_columns() {  # <pane-cap>
+  if [ "$1" -le 3 ]; then printf '%s' "$1"; else printf '%s' $(( ($1 + 1) / 2 )); fi
+}
+
+# fm_backend_herdr_crew_split_anchor: "<pane-id> <direction>" for the next
+# pane in the crew tab holding <pane-id>, read from that tab's live pane
+# geometry. The grid fills its top row left to right, then its bottom row left
+# to right:
+#   1. While the tab has fewer than <columns> columns and its rightmost column
+#      is one full-height pane, split that pane right to add a column.
+#   2. Otherwise split the leftmost full-height pane down, which also refills
+#      a slot a closed pane left behind.
+#   3. Otherwise (a whole column closed while others stayed full, a shape a
+#      pane split cannot rebuild) split the largest pane across its longer
+#      visual side; the rebalance below still evens every split.
+# Empty when the layout cannot be read.
+fm_backend_herdr_crew_split_anchor() {  # <session> <pane-id> <columns>
+  fm_backend_herdr_cli "$1" pane layout --pane "$2" 2>/dev/null | jq -r --argjson columns "$3" '
+    .result.layout as $layout
+    | ($layout.panes | select(type == "array" and length > 0)) as $panes
+    | ($layout.area.height) as $height
+    | ([$panes[].rect.x] | unique) as $xs
+    | [$panes[] | select(.rect.x == ($xs | max))] as $right
+    | [$panes[] | select(.rect.height == $height)] as $full
+    | if ($xs | length) < $columns and ($right | length) == 1 and $right[0].rect.height == $height
+      then "\($right[0].pane_id) right"
+      elif ($full | length) > 0
+      then "\($full | min_by(.rect.x) | .pane_id) down"
+      else ($panes | max_by(.rect.width * .rect.height))
+        | "\(.pane_id) \(if .rect.width >= 2 * .rect.height then "right" else "down" end)"
+      end
+  ' 2>/dev/null
+}
+
+# fm_backend_herdr_crew_equalize: best-effort rebalance of one crew tab so
+# every pane gets an equal share of the grid, through
+# bin/backends/herdr-crew-equalize.py, which only reads the tab's layout and
+# sets split ratios, never recreating a pane. Any unavailable capability or
+# failure warns and leaves the tab as Herdr drew it; it never fails a caller.
+fm_backend_herdr_crew_equalize() {  # <session> <tab-id>
+  local session=$1 tab=$2 socket helper
+  command -v python3 >/dev/null 2>&1 || {
+    echo "warning: herdr crew grid rebalance requires python3; leaving the crew tab's split sizes as they are" >&2
+    return 0
+  }
+  fm_backend_herdr_cli "$session" api schema --json 2>/dev/null | jq -e '
+    [.schemas.request.oneOf[]?.properties.method.const] as $methods
+    | ($methods | index("layout.export")) != null and ($methods | index("layout.set_split_ratio")) != null
+  ' >/dev/null 2>&1 || {
+    echo "warning: herdr crew grid rebalance needs layout.export and layout.set_split_ratio; leaving the crew tab's split sizes as they are" >&2
+    return 0
+  }
+  socket=$(fm_backend_herdr_presentation_session_socket_path "$session") || {
+    echo "warning: herdr crew grid rebalance found an ambiguous named session socket; leaving the crew tab's split sizes as they are" >&2
+    return 0
+  }
+  helper=${FM_BACKEND_HERDR_CREW_EQUALIZER:-$FM_BACKEND_HERDR_ROOT/bin/backends/herdr-crew-equalize.py}
+  "$helper" "$socket" "$tab" >/dev/null 2>&1 || \
+    echo "warning: herdr crew grid rebalance could not verify even split sizes for tab $tab; leaving it as Herdr drew it" >&2
+  return 0
+}
+
+# fm_backend_herdr_crew_tab_of: echo "<workspace-id> <tab-id>" for <pane-id>
+# only when it lives in this home's labeled crew workspace. The label only
+# gates the non-destructive rebalance after a close, never any placement or
+# removal.
+fm_backend_herdr_crew_tab_of() {  # <session> <pane-id>
+  local session=$1 pane=$2 info ws tab
+  info=$(fm_backend_herdr_cli "$session" pane get "$pane" 2>/dev/null) || return 1
+  ws=$(printf '%s' "$info" | jq -r '.result.pane.workspace_id // empty' 2>/dev/null)
+  tab=$(printf '%s' "$info" | jq -r '.result.pane.tab_id // empty' 2>/dev/null)
+  [ -n "$ws" ] && [ -n "$tab" ] || return 1
+  fm_backend_herdr_cli "$session" workspace list 2>/dev/null | jq -e --arg ws "$ws" --arg want "$(fm_backend_herdr_crew_workspace_label)" '
+    [.result.workspaces[]? | select(.workspace_id == $ws and .label == $want)] | length == 1
+  ' >/dev/null 2>&1 || return 1
+  printf '%s %s' "$ws" "$tab"
+}
+
+# fm_backend_herdr_crew_create_task: place one task as a pane in this home's
+# first recorded crew workspace in <session> holding fewer than <pane-cap>
+# panes. When none has room, a new crew workspace is created, recorded, and
+# ordered right after the last crew workspace, or after <parent-workspace-id>
+# (or the unique home label) when it is the first, best-effort. The caller
+# must hold the named-session presentation lock so the record, workspace
+# choice, and split cannot race another spawn. Call it as a plain statement;
+# it prints nothing and sets:
+#   FM_BACKEND_HERDR_CREW_WORKSPACE_ID FM_BACKEND_HERDR_CREW_TAB_ID
+#   FM_BACKEND_HERDR_CREW_PANE_ID
+# The pane id is set as soon as Herdr returns one, even on a later failure, so
+# the caller's abort cleanup can close exactly that pane.
+# A same-labeled pane in any crew workspace refuses unless it is a husk, which
+# is replaced only after the new pane exists (the flat tab path's rule).
+fm_backend_herdr_crew_create_task() {  # <session> <state-dir> <cwd> <task-label> <pane-cap> [<parent-workspace-id>]
+  local session=$1 state=$2 cwd=$3 label=$4 cap=$5 parent_ws=${6:-}
+  local wsids ws wsid="" last_ws="" out="" panes all_panes="" tab_id="" pane="" count anchor husk husks="" focus_before
+  local created=0
+  FM_BACKEND_HERDR_CREW_WORKSPACE_ID=""
+  FM_BACKEND_HERDR_CREW_TAB_ID=""
+  FM_BACKEND_HERDR_CREW_PANE_ID=""
+  case "$cap" in ''|*[!0-9]*|0) cap=$FM_BACKEND_HERDR_CREW_PANE_CAP_DEFAULT ;; esac
+  wsids=$(fm_backend_herdr_crew_workspace_recorded "$state" "$session") || {
+    echo "error: could not read herdr workspaces in session '$session' to find this home's crew workspaces" >&2
+    return 1
+  }
+  while IFS= read -r ws; do
+    [ -n "$ws" ] || continue
+    panes=$(fm_backend_herdr_cli "$session" pane list --workspace "$ws" 2>/dev/null) || panes=
+    printf '%s' "$panes" | jq -e '(.result.panes | type) == "array"' >/dev/null 2>&1 || {
+      echo "error: could not parse herdr pane list output for crew workspace $ws (session $session)" >&2
+      return 1
+    }
+    while IFS= read -r husk; do
+      [ -n "$husk" ] || continue
+      if ! fm_backend_herdr_tab_is_husk "$session" "$husk"; then
+        echo "error: herdr pane '$label' already exists in crew workspace $ws (session $session)" >&2
+        return 1
+      fi
+      husks="${husks}${husk}"$'\n'
+    done < <(printf '%s' "$panes" | jq -r --arg want "$label" '.result.panes[] | select(.label == $want) | .pane_id' 2>/dev/null)
+    last_ws=$ws
+    # The first crew workspace with room gets a split, so panes freed by
+    # cleanup refill before another workspace opens.
+    count=$(printf '%s' "$panes" | jq -r '.result.panes | length' 2>/dev/null)
+    if [ -z "$wsid" ] && [ "${count:-0}" -gt 0 ] && [ "$count" -lt "$cap" ]; then
+      wsid=$ws
+      all_panes=$panes
+    fi
+  done <<FMEOF
+$wsids
+FMEOF
+  # Every create below passes --no-focus; the snapshot is the same exact-tab
+  # restore backstop the presentation path uses, skipped only when the session
+  # has no single focused tab to restore.
+  focus_before=$(fm_backend_herdr_projection_focus_snapshot "$session") || focus_before=
+  if [ -n "$wsid" ]; then
+    anchor=$(fm_backend_herdr_crew_split_anchor "$session" \
+      "$(printf '%s' "$all_panes" | jq -r '.result.panes[0].pane_id' 2>/dev/null)" \
+      "$(fm_backend_herdr_crew_grid_columns "$cap")")
+    if [ -n "$anchor" ]; then
+      out=$(fm_backend_herdr_cli "$session" pane split "${anchor%% *}" --direction "${anchor#* }" \
+        --cwd "$cwd" --no-focus 2>/dev/null) || out=
+      tab_id=$(printf '%s' "$out" | jq -r '.result.pane.tab_id // empty' 2>/dev/null)
+      pane=$(printf '%s' "$out" | jq -r '.result.pane.pane_id // empty' 2>/dev/null)
+    fi
+  else
+    out=$(fm_backend_herdr_cli "$session" workspace create --cwd "$cwd" \
+      --label "$(fm_backend_herdr_crew_workspace_label)" --no-focus 2>/dev/null) || out=
+    wsid=$(printf '%s' "$out" | jq -r '.result.workspace.workspace_id // empty' 2>/dev/null)
+    tab_id=$(printf '%s' "$out" | jq -r '.result.tab.tab_id // empty' 2>/dev/null)
+    pane=$(printf '%s' "$out" | jq -r '.result.root_pane.pane_id // empty' 2>/dev/null)
+    created=1
+  fi
+  # shellcheck disable=SC2034  # callers consume the crew placement's parts
+  FM_BACKEND_HERDR_CREW_PANE_ID=$pane
+  [ -z "$focus_before" ] || fm_backend_herdr_projection_focus_restore "$session" "$focus_before" "crew pane create" || true
+  if [ -z "$wsid" ] || [ -z "$tab_id" ] || [ -z "$pane" ]; then
+    echo "error: herdr did not return a complete crew workspace, tab, and pane for $label (session $session)" >&2
+    return 1
+  fi
+  if [ "$created" = 1 ]; then
+    # shellcheck disable=SC2086  # one live workspace id per line
+    fm_backend_herdr_crew_record_write "$state" "$session" $wsids "$wsid" || {
+      echo "error: could not record herdr crew workspace $wsid for session $session" >&2
+      return 1
+    }
+    if [ -n "$last_ws" ]; then
+      fm_backend_herdr_projection_order_best_effort "$session" "$wsid" \
+        "$(fm_backend_herdr_crew_workspace_label)" "$last_ws"
+    else
+      fm_backend_herdr_projection_order_best_effort "$session" "$wsid" \
+        "$(fm_backend_herdr_workspace_label)" "$parent_ws"
+    fi
+  fi
+  # The pane label is what duplicate detection and list-live read, never
+  # endpoint authority, so an unlabeled pane is not a usable crew placement.
+  fm_backend_herdr_cli "$session" pane rename "$pane" "$label" >/dev/null 2>&1 || {
+    echo "error: could not label herdr crew pane $pane as '$label' (session $session)" >&2
+    return 1
+  }
+  while IFS= read -r husk; do
+    [ -n "$husk" ] || continue
+    fm_backend_herdr_explicit_close_pane_confirmed "$session" "$husk" || {
+      echo "error: failed to remove preexisting herdr crew pane $husk for label '$label' (session $session)" >&2
+      return 1
+    }
+  done <<FMEOF
+$husks
+FMEOF
+  [ "$created" = 1 ] || fm_backend_herdr_crew_equalize "$session" "$tab_id"
+  # shellcheck disable=SC2034  # callers consume the crew placement's parts
+  FM_BACKEND_HERDR_CREW_WORKSPACE_ID=$wsid
+  # shellcheck disable=SC2034  # callers consume the crew placement's parts
+  FM_BACKEND_HERDR_CREW_TAB_ID=$tab_id
+  return 0
+}
+
 # fm_backend_herdr_projection_parent_workspace_exact: resolve one exact parent
 # workspace only when its presentation label is unique in the named session.
 fm_backend_herdr_projection_parent_workspace_exact() {  # <session> <parent-label>
@@ -3483,7 +3749,7 @@ fm_backend_herdr_kill_serialized() {  # <session> <pane>
 fm_backend_herdr_kill() {  # <target>
   fm_backend_herdr_target_ready "$1" || return 0
   local session=$FM_BACKEND_HERDR_SESSION pane=$FM_BACKEND_HERDR_PANE
-  local lock_path attempt=0 lock_held=0
+  local lock_path attempt=0 lock_held=0 crew_tab
   if ! declare -F fm_lock_try_acquire >/dev/null 2>&1; then
     # shellcheck source=bin/fm-wake-lib.sh
     . "$FM_BACKEND_HERDR_ROOT/bin/fm-wake-lib.sh"
@@ -3499,7 +3765,20 @@ fm_backend_herdr_kill() {  # <target>
     done
   fi
   if [ "$lock_held" = 1 ]; then
+    # A crew pane's tab is rebalanced after the close so the remaining panes
+    # keep an even grid (docs/herdr-backend.md "Crew workspace"); a home that
+    # never placed a crew pane has no crew record and makes no extra calls.
+    crew_tab=
+    if [ -f "$(fm_backend_herdr_crew_record_path "${FM_STATE_OVERRIDE:-${FM_HOME:-}/state}" "$session")" ]; then
+      crew_tab=$(fm_backend_herdr_crew_tab_of "$session" "$pane") || crew_tab=
+    fi
     fm_backend_herdr_kill_serialized "$session" "$pane"
+    if [ -n "$crew_tab" ] \
+      && [ "$(fm_backend_herdr_pane_presence_state "$session" "$pane")" = dead ] \
+      && fm_backend_herdr_cli "$session" tab get "${crew_tab#* }" 2>/dev/null \
+        | jq -e --arg tab "${crew_tab#* }" '.result.tab.tab_id == $tab' >/dev/null 2>&1; then
+      fm_backend_herdr_crew_equalize "$session" "${crew_tab#* }"
+    fi
     fm_lock_release "$lock_path" || true
   else
     echo "warning: herdr task kill could not acquire its session presentation lock; refusing an unlocked pane close" >&2
@@ -3661,8 +3940,8 @@ fm_backend_herdr_pane_for_tab() {  # <session> <workspace_id> <tab_id>
 
 # fm_backend_herdr_resolve_bare_selector: the live-tab-listing fallback for an
 # ad hoc selector with no meta (mirrors tmux's list-windows grep). Searches
-# every RUNNING named herdr session (herdr session list) for a tab whose label
-# matches <name>, since herdr sessions are not addressed by one ambient
+# every RUNNING named herdr session (herdr session list) for a tab (or, for a
+# crew-layout task, a pane) whose label matches <name>, since herdr sessions are not addressed by one ambient
 # server the way a single tmux server is. Rare path in practice (herdr tasks
 # normally carry meta), best-effort.
 fm_backend_herdr_resolve_bare_selector() {  # <name>
@@ -3673,10 +3952,15 @@ fm_backend_herdr_resolve_bare_selector() {  # <name>
     tabs=$(fm_backend_herdr_cli "$session" tab list 2>/dev/null) || continue
     tab_id=$(printf '%s' "$tabs" | jq -r --arg want "$name" \
       '.result.tabs[]? | select(.label == $want) | .tab_id' 2>/dev/null | head -1)
-    [ -n "$tab_id" ] || continue
-    wsid=$(printf '%s' "$tabs" | jq -r --arg tab "$tab_id" '.result.tabs[]? | select(.tab_id == $tab) | .workspace_id' 2>/dev/null | head -1)
-    [ -n "$wsid" ] || continue
-    pane_id=$(fm_backend_herdr_pane_for_tab "$session" "$wsid" "$tab_id") || continue
+    if [ -n "$tab_id" ]; then
+      wsid=$(printf '%s' "$tabs" | jq -r --arg tab "$tab_id" '.result.tabs[]? | select(.tab_id == $tab) | .workspace_id' 2>/dev/null | head -1)
+      [ -n "$wsid" ] || continue
+      pane_id=$(fm_backend_herdr_pane_for_tab "$session" "$wsid" "$tab_id") || continue
+    else
+      # A crew-layout task is a labeled pane rather than a labeled tab.
+      pane_id=$(fm_backend_herdr_cli "$session" pane list 2>/dev/null | jq -r --arg want "$name" \
+        '.result.panes[]? | select(.label == $want) | .pane_id' 2>/dev/null | head -1)
+    fi
     [ -n "$pane_id" ] || continue
     printf '%s:%s' "$session" "$pane_id"
     return 0
@@ -3697,18 +3981,26 @@ EOF
 # workspace because FM_HOME already names it - no glue needed, unlike the
 # primary-spawns-a-secondmate path in fm-spawn.sh. Read-only: a session/
 # workspace that does not exist yet simply lists nothing. One
-# "<session>:<pane_id>\t<label>" line per live task tab.
+# "<session>:<pane_id>\t<label>" line per live task tab, followed by one per
+# fm-<id>-labeled pane in each workspace carrying this home's crew label.
 fm_backend_herdr_list_live() {  # <session>
   local session=$1 wsid tabs tab_id label pane_id
-  wsid=$(fm_backend_herdr_workspace_find "$session") || return 0
-  [ -n "$wsid" ] || return 0
-  tabs=$(fm_backend_herdr_cli "$session" tab list --workspace "$wsid" 2>/dev/null) || return 0
-  while IFS=$'\t' read -r tab_id label; do
-    [ -n "$tab_id" ] || continue
-    pane_id=$(fm_backend_herdr_pane_for_tab "$session" "$wsid" "$tab_id") || continue
-    [ -n "$pane_id" ] || continue
-    printf '%s:%s\t%s\n' "$session" "$pane_id" "$label"
-  done < <(printf '%s' "$tabs" | jq -r '.result.tabs[]? | select(.label | startswith("fm-")) | "\(.tab_id)\t\(.label)"' 2>/dev/null)
+  wsid=$(fm_backend_herdr_workspace_find "$session") || wsid=
+  if [ -n "$wsid" ] && tabs=$(fm_backend_herdr_cli "$session" tab list --workspace "$wsid" 2>/dev/null); then
+    while IFS=$'\t' read -r tab_id label; do
+      [ -n "$tab_id" ] || continue
+      pane_id=$(fm_backend_herdr_pane_for_tab "$session" "$wsid" "$tab_id") || continue
+      [ -n "$pane_id" ] || continue
+      printf '%s:%s\t%s\n' "$session" "$pane_id" "$label"
+    done < <(printf '%s' "$tabs" | jq -r '.result.tabs[]? | select(.label | startswith("fm-")) | "\(.tab_id)\t\(.label)"' 2>/dev/null)
+  fi
+  while IFS= read -r wsid; do
+    [ -n "$wsid" ] || continue
+    fm_backend_herdr_cli "$session" pane list --workspace "$wsid" 2>/dev/null | jq -r --arg session "$session" \
+      '.result.panes[]? | select((.label // "") | startswith("fm-")) | "\($session):\(.pane_id)\t\(.label)"' 2>/dev/null
+  done < <(fm_backend_herdr_cli "$session" workspace list 2>/dev/null | jq -r --arg want "$(fm_backend_herdr_crew_workspace_label)" \
+    '.result.workspaces[]? | select(.label == $want) | .workspace_id' 2>/dev/null)
+  return 0
 }
 
 # --- native event push: pane.agent_status_changed subscriber -----------------

@@ -147,6 +147,11 @@ def parse_env_file(path: str) -> list[Assignment]:
                 text, value_start, text[value_start], path
             )
             next_end = _line_end(text, consumed)
+            trailing = text[consumed:next_end].strip(" \t\r")
+            if trailing and not trailing.startswith("#"):
+                raise SecretToolError(
+                    f"{path}: trailing data after quoted value at line {_line_number(text, consumed)}"
+                )
         else:
             value, next_end = _unquoted_value(text, value_start)
         assignments.append(Assignment(match.group(1), value))
@@ -208,6 +213,14 @@ def parse_systemd_environment_file(path: str) -> list[Assignment]:
         raise SecretToolError("systemd EnvironmentFile is not valid UTF-8") from exc
     except OSError as exc:
         raise SecretToolError(f"cannot read settings file: {path}") from exc
+    if any(
+        char == "\0"
+        or char == "\ufeff"
+        or 0xFDD0 <= ord(char) <= 0xFDEF
+        or ord(char) & 0xFFFF in {0xFFFE, 0xFFFF}
+        for char in text
+    ):
+        raise SecretToolError("systemd EnvironmentFile contains disallowed characters")
 
     assignments: list[Assignment] = []
     position = 0

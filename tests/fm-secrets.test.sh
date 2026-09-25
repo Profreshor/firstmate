@@ -108,6 +108,19 @@ test_run_ignores_empty_secret_values() {
   pass "fm-secrets: empty secret settings do not corrupt output"
 }
 
+test_run_rejects_trailing_quoted_data() {
+  local env_file output rc
+  env_file="$TMP_ROOT/trailing-quoted.env"
+  printf '%s\n' 'TOKEN="abc"suffix' > "$env_file"
+  output=$($TOOL run "$env_file" --only TOKEN -- printf x 2>&1)
+  rc=$?
+  expect_code 2 "$rc" "run must reject trailing quoted data"
+  assert_not_contains "$output" 'abc' "run exposed a malformed quoted value"
+  assert_contains "$output" 'trailing data after quoted value' \
+    "run did not explain malformed quoted data safely"
+  pass "fm-secrets: run rejects trailing quoted data"
+}
+
 test_run_scrubs_empty_username_url_passwords() {
   local env_file output
   env_file="$TMP_ROOT/empty-username.env"
@@ -193,6 +206,37 @@ test_service_has_falls_back_to_unit_settings() {
   pass "fm-secrets: service has safely reads EnvironmentFile and Environment declarations"
 }
 
+test_service_has_rejects_invalid_environment_file_characters() {
+  local env_file invalid output rc
+  env_file="$TMP_ROOT/invalid-unit.env"
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'case "$*" in' \
+    '  *--property=MainPID*) printf "0\n" ;;' \
+    '  *--property=EnvironmentFiles*) printf "%s (ignore_errors=no)\n" "${FM_TEST_UNIT_ENV:?}" ;;' \
+    '  *--property=Environment*) printf "\n" ;;' \
+    '  *--property=UnsetEnvironment*) printf "\n" ;;' \
+    '  *) exit 64 ;;' \
+    'esac' > "$FAKEBIN/systemctl"
+  chmod +x "$FAKEBIN/systemctl"
+
+  for invalid in nul bom noncharacter; do
+    case "$invalid" in
+      nul) printf 'TOKEN=value\0' > "$env_file" ;;
+      bom) printf '\357\273\277TOKEN=value\n' > "$env_file" ;;
+      noncharacter) printf 'TOKEN=value\357\267\220\n' > "$env_file" ;;
+    esac
+    output=$(PATH="$FAKEBIN:$PATH" FM_TEST_UNIT_ENV="$env_file" \
+      $TOOL has --service fake-invalid.service TOKEN 2>&1)
+    rc=$?
+    expect_code 2 "$rc" "$invalid EnvironmentFile must fail closed"
+    assert_not_contains "$output" 'value' "$invalid EnvironmentFile exposed its value"
+    assert_contains "$output" 'cannot inspect a required systemd EnvironmentFile safely' \
+      "$invalid EnvironmentFile did not explain the safe refusal"
+  done
+  pass "fm-secrets: service has rejects invalid EnvironmentFile characters"
+}
+
 test_help_owns_the_scrub_limit() {
   local help
   help=$($TOOL --help) || fail "--help failed"
@@ -207,8 +251,10 @@ test_names_and_has_never_print_values
 test_run_scrubs_all_file_values_and_preserves_status
 test_run_excludes_and_scrubs_ambient_secret_settings
 test_run_ignores_empty_secret_values
+test_run_rejects_trailing_quoted_data
 test_run_scrubs_empty_username_url_passwords
 test_run_scrubs_url_decoded_passwords
 test_service_has_reads_process_environment_without_values
 test_service_has_falls_back_to_unit_settings
+test_service_has_rejects_invalid_environment_file_characters
 test_help_owns_the_scrub_limit

@@ -524,8 +524,26 @@ def command_run(args: Sequence[str]) -> int:
     for name in requested:
         child_env[name] = values[name]
 
+    child: subprocess.Popen[bytes] | None = None
+    received_signal: int | None = None
+    previous_handlers: dict[int, signal.Handlers] = {}
+
+    def forward_signal(signum: int, _frame: object) -> None:
+        nonlocal received_signal
+        if received_signal is None:
+            received_signal = signum
+        if child is None:
+            return
+        try:
+            os.killpg(child.pid, signum)
+        except ProcessLookupError:
+            pass
+
+    forwarded_signals = (signal.SIGHUP, signal.SIGINT, signal.SIGTERM)
     try:
-        child = subprocess.run(
+        for signum in forwarded_signals:
+            previous_handlers[signum] = signal.signal(signum, forward_signal)
+        child = subprocess.Popen(
             list(args[delimiter + 1 :]),
             env=child_env,
             stdin=subprocess.DEVNULL,
@@ -533,20 +551,27 @@ def command_run(args: Sequence[str]) -> int:
             stderr=subprocess.PIPE,
             start_new_session=True,
             close_fds=True,
-            check=False,
         )
+        if received_signal is not None:
+            forward_signal(received_signal, None)
+        stdout_bytes, stderr_bytes = child.communicate()
     except OSError as exc:
         raise SecretToolError("command could not be started") from exc
+    finally:
+        for signum, previous_handler in previous_handlers.items():
+            signal.signal(signum, previous_handler)
 
     scrubbers = known_scrubbers(
         [*assignments, *(Assignment(name, value) for name, value in child_env.items() if is_secret_name(name))],
         requested,
     )
-    stdout, stderr = scrub_stream_boundary(child.stdout, child.stderr, scrubbers)
+    stdout, stderr = scrub_stream_boundary(stdout_bytes, stderr_bytes, scrubbers)
     sys.stdout.buffer.write(stdout)
     sys.stderr.buffer.write(stderr)
     sys.stdout.buffer.flush()
     sys.stderr.buffer.flush()
+    if received_signal is not None:
+        return 128 + received_signal
     if child.returncode < 0:
         return 128 + abs(child.returncode)
     return child.returncode

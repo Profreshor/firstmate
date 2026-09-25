@@ -173,6 +173,56 @@ PY
   pass "fm-secrets: run detaches terminal descriptors"
 }
 
+test_run_forwards_termination_to_child_group() {
+  local env_file pid_file output_file wrapper_pid child_pid rc attempt child_alive
+  env_file="$TMP_ROOT/signal.env"
+  pid_file="$TMP_ROOT/signal-child.pid"
+  output_file="$TMP_ROOT/signal-output"
+  printf '%s\n' 'TOKEN=fake_signal_secret_20260925' > "$env_file"
+
+  # shellcheck disable=SC2016 # The child expands its PID and positional argument.
+  $TOOL run "$env_file" --only TOKEN -- \
+    sh -c 'printf "%s\n" "$$" > "$1"; sleep 30' _ "$pid_file" \
+    > "$output_file" 2>&1 &
+  wrapper_pid=$!
+
+  attempt=0
+  while [ ! -s "$pid_file" ] && [ "$attempt" -lt 100 ]; do
+    sleep 0.05
+    attempt=$((attempt + 1))
+  done
+  if [ ! -s "$pid_file" ]; then
+    kill -TERM "$wrapper_pid" 2>/dev/null || true
+    wait "$wrapper_pid" 2>/dev/null || true
+    fail "run child did not publish its PID"
+  fi
+  child_pid=$(sed -n '1p' "$pid_file")
+  sleep 0.1
+
+  kill -TERM "$wrapper_pid" || fail "could not terminate run wrapper"
+  wait "$wrapper_pid"
+  rc=$?
+
+  child_alive=yes
+  attempt=0
+  while [ "$attempt" -lt 40 ]; do
+    if ! kill -0 "$child_pid" 2>/dev/null; then
+      child_alive=no
+      break
+    fi
+    sleep 0.05
+    attempt=$((attempt + 1))
+  done
+  if [ "$child_alive" = yes ]; then
+    kill -TERM -- "-$child_pid" 2>/dev/null || true
+    fail "run left its detached child process group alive after termination"
+  fi
+
+  expect_code 143 "$rc" "run must report conventional SIGTERM status"
+  assert_no_fake_secret "$(< "$output_file")" "run signal forwarding"
+  pass "fm-secrets: run forwards termination to its child process group"
+}
+
 test_run_rejects_trailing_quoted_data() {
   local env_file output rc
   env_file="$TMP_ROOT/trailing-quoted.env"
@@ -381,6 +431,7 @@ test_run_ignores_empty_secret_values
 test_run_scrubs_short_selected_values
 test_run_scrubs_stream_boundary
 test_run_detaches_terminal
+test_run_forwards_termination_to_child_group
 test_run_rejects_trailing_quoted_data
 test_run_scrubs_empty_username_url_passwords
 test_run_scrubs_url_decoded_passwords

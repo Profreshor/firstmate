@@ -112,6 +112,7 @@ test_run_scrubs_short_selected_values() {
   local env_file output
   env_file="$TMP_ROOT/short-selected.env"
   printf '%s\n' 'OTP=12345' > "$env_file"
+  # shellcheck disable=SC2016 # The child expands only its deliberately injected environment.
   output=$($TOOL run "$env_file" --only OTP -- sh -c 'printf "%s\\n" "$OTP"' 2>&1) \
     || fail "run failed with a short selected value"
   assert_not_contains "$output" '12345' "run leaked a short selected value"
@@ -189,6 +190,7 @@ test_run_scrubs_empty_username_url_passwords() {
   local env_file output
   env_file="$TMP_ROOT/empty-username.env"
   printf '%s\n' 'DATABASE_URL=postgres://:12345@db/x' > "$env_file"
+  # shellcheck disable=SC2016 # The child extracts its deliberately injected URL password.
   output=$($TOOL run "$env_file" --only DATABASE_URL -- \
     sh -c 'password=${DATABASE_URL#*://:}; printf "%s\n" "${password%@*}"' 2>&1) \
     || fail "run failed with an empty URL username"
@@ -274,6 +276,7 @@ test_service_has_falls_back_to_unit_settings() {
 test_service_has_rejects_invalid_environment_file_characters() {
   local env_file invalid output rc
   env_file="$TMP_ROOT/invalid-unit.env"
+  # shellcheck disable=SC2016 # This writes literal child-shell source.
   printf '%s\n' \
     '#!/usr/bin/env bash' \
     'case "$*" in' \
@@ -307,6 +310,7 @@ test_service_has_only_ignores_missing_optional_environment_files() {
   local env_file missing_file output rc
   env_file="$TMP_ROOT/optional-unit.env"
   missing_file="$TMP_ROOT/missing-optional-unit.env"
+  # shellcheck disable=SC2016 # This writes literal child-shell source.
   printf '%s\n' \
     '#!/usr/bin/env bash' \
     'case "$*" in' \

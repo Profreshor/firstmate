@@ -132,6 +132,46 @@ test_run_scrubs_stream_boundary() {
   pass "fm-secrets: run scrubs stream-boundary values"
 }
 
+test_run_detaches_terminal() {
+  local env_file output rc
+  env_file="$TMP_ROOT/terminal.env"
+  printf '%s\n' 'TOKEN=fake_terminal_secret_20260925' > "$env_file"
+  output=$(python3 - "$TOOL" "$env_file" <<'PY'
+import errno
+import os
+import sys
+
+tool, env_file = sys.argv[1:]
+pid, terminal = os.forkpty()
+if pid == 0:
+    os.execv(tool, [tool, "run", env_file, "--only", "TOKEN", "--", "sh", "-c", 'printf %s "$TOKEN" > /dev/tty; printf %s "$TOKEN" >&0'])
+
+chunks = []
+while True:
+    try:
+        chunk = os.read(terminal, 4096)
+    except OSError as error:
+        if error.errno == errno.EIO:
+            break
+        raise
+    if not chunk:
+        break
+    chunks.append(chunk)
+os.close(terminal)
+_pid, status = os.waitpid(pid, 0)
+os.write(1, b"".join(chunks))
+if os.WIFEXITED(status):
+    sys.exit(os.WEXITSTATUS(status))
+sys.exit(128 + os.WTERMSIG(status))
+PY
+)
+  rc=$?
+  expect_code 0 "$rc" "run must isolate terminal output"
+  assert_not_contains "$output" 'fake_terminal_secret_20260925' \
+    "run leaked a selected value through a terminal descriptor"
+  pass "fm-secrets: run detaches terminal descriptors"
+}
+
 test_run_rejects_trailing_quoted_data() {
   local env_file output rc
   env_file="$TMP_ROOT/trailing-quoted.env"
@@ -290,6 +330,8 @@ test_help_owns_the_scrub_limit() {
   assert_contains "$help" 'at least 6 bytes long' "help omitted the scrub threshold"
   assert_contains "$help" 'Every nonempty selected value' \
     "help omitted selected-value scrubbing"
+  assert_contains "$help" 'no controlling terminal' \
+    "help omitted terminal isolation"
   assert_contains "$help" 'shorter than 6 bytes' "help omitted the short-value limit"
   assert_contains "$help" 'URL userinfo passwords' "help omitted the URL password exception"
   assert_contains "$help" 'exit status is preserved' "help omitted child status behavior"
@@ -303,6 +345,7 @@ test_run_excludes_and_scrubs_ambient_secret_settings
 test_run_ignores_empty_secret_values
 test_run_scrubs_short_selected_values
 test_run_scrubs_stream_boundary
+test_run_detaches_terminal
 test_run_rejects_trailing_quoted_data
 test_run_scrubs_empty_username_url_passwords
 test_run_scrubs_url_decoded_passwords

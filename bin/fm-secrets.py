@@ -521,8 +521,11 @@ def command_run(args: Sequence[str]) -> int:
         child = subprocess.run(
             list(args[delimiter + 1 :]),
             env=child_env,
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            start_new_session=True,
+            close_fds=True,
             check=False,
         )
     except OSError as exc:

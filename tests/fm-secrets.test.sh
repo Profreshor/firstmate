@@ -31,6 +31,7 @@ printf '%s\n' \
   "URL_PASSWORD=${FAKE_URL_PASSWORD}" \
   "NON_INJECTED_VALUE=${FAKE_NON_INJECTED}" \
   "PIN=${FAKE_PIN}" \
+  'TOKEN=' \
   'SHORT_VALUE=abc' > "$ENV_FILE"
 
 assert_no_fake_secret() {
@@ -46,7 +47,7 @@ assert_no_fake_secret() {
 test_names_and_has_never_print_values() {
   local names has expected
   names=$($TOOL names "$ENV_FILE" 2>&1) || fail "names failed"
-  expected=$(printf '%s\n' INDENTED_URL QUOTED_VALUE MULTI_VALUE URL_PASSWORD NON_INJECTED_VALUE PIN SHORT_VALUE)
+  expected=$(printf '%s\n' INDENTED_URL QUOTED_VALUE MULTI_VALUE URL_PASSWORD NON_INJECTED_VALUE PIN TOKEN SHORT_VALUE)
   [ "$names" = "$expected" ] || fail "names did not parse supported env syntax: $names"
   assert_no_fake_secret "$names" "names"
   assert_not_contains "$names" 'LOOKS_LIKE_A_NAME' \
@@ -97,6 +98,14 @@ test_run_excludes_and_scrubs_ambient_secret_settings() {
   assert_contains "$output" 'ambient=unset' "run inherited an ambient secret setting"
   assert_contains "$output" '<redacted:PIN>' "run did not scrub the requested short PIN"
   pass "fm-secrets: run excludes ambient secrets and scrubs short secret names"
+}
+
+test_run_ignores_empty_secret_values() {
+  local output
+  output=$($TOOL run "$ENV_FILE" --only TOKEN -- printf x 2>&1) \
+    || fail "run failed with an empty secret setting"
+  [ "$output" = x ] || fail "run let an empty secret setting corrupt command output: $output"
+  pass "fm-secrets: empty secret settings do not corrupt output"
 }
 
 test_service_has_reads_process_environment_without_values() {
@@ -164,6 +173,7 @@ test_help_owns_the_scrub_limit() {
 test_names_and_has_never_print_values
 test_run_scrubs_all_file_values_and_preserves_status
 test_run_excludes_and_scrubs_ambient_secret_settings
+test_run_ignores_empty_secret_values
 test_service_has_reads_process_environment_without_values
 test_service_has_falls_back_to_unit_settings
 test_help_owns_the_scrub_limit

@@ -311,7 +311,7 @@ def known_scrubbers(assignments: Iterable[Assignment]) -> list[tuple[bytes, byte
     for assignment in assignments:
         encoded = assignment.value.encode("utf-8", errors="surrogateescape")
         replacement = f"<redacted:{assignment.name}>".encode("ascii")
-        if len(encoded) >= MIN_SCRUB_BYTES or is_secret_name(assignment.name):
+        if encoded and (len(encoded) >= MIN_SCRUB_BYTES or is_secret_name(assignment.name)):
             scrubbers.setdefault(encoded, replacement)
         for match in URL_PASSWORD_RE.finditer(encoded):
             password = match.group(2)

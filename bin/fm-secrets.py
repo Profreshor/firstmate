@@ -26,6 +26,7 @@ NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 ASSIGNMENT_RE = re.compile(
     r"[ \t]*(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*=[ \t]*"
 )
+SYSTEMD_ASSIGNMENT_RE = re.compile(r"[ \t]*([A-Za-z_][A-Za-z0-9_]*)[ \t]*=[ \t]*")
 URL_PASSWORD_RE = re.compile(
     rb"([A-Za-z][A-Za-z0-9+.-]*://[^\s/@:]*:)([^\s/@]+)(@[^\s]+)"
 )
@@ -150,6 +151,89 @@ def parse_env_file(path: str) -> list[Assignment]:
             value, next_end = _unquoted_value(text, value_start)
         assignments.append(Assignment(match.group(1), value))
         position = next_end + (next_end < len(text))
+    return assignments
+
+
+def _systemd_unquoted_value(text: str, start: int, path: str) -> tuple[str, int]:
+    pieces: list[str] = []
+    cursor = start
+    while True:
+        end = _line_end(text, cursor)
+        piece = text[cursor:end].rstrip(" \t\r")
+        trailing = len(piece) - len(piece.rstrip("\\"))
+        if trailing % 2 and end < len(text):
+            pieces.append(piece[:-1])
+            cursor = end + 1
+            continue
+        pieces.append(piece)
+        break
+    value = "".join(pieces)
+    decoded: list[str] = []
+    cursor = 0
+    while cursor < len(value):
+        if value[cursor] == "\\":
+            if cursor + 1 == len(value):
+                raise SecretToolError(f"{path}: invalid unquoted escape")
+            cursor += 1
+        decoded.append(value[cursor])
+        cursor += 1
+    return "".join(decoded), end
+
+
+def _systemd_double_quoted_value(text: str, start: int, path: str) -> tuple[str, int]:
+    decoded: list[str] = []
+    cursor = start + 1
+    while cursor < len(text):
+        char = text[cursor]
+        if char == '"':
+            return "".join(decoded), cursor + 1
+        if char == "\\" and cursor + 1 < len(text):
+            following = text[cursor + 1]
+            if following == "\n":
+                cursor += 2
+                continue
+            if following in '"\\`$':
+                decoded.append(following)
+                cursor += 2
+                continue
+        decoded.append(char)
+        cursor += 1
+    raise SecretToolError(f"{path}: unterminated double-quoted value")
+
+
+def parse_systemd_environment_file(path: str) -> list[Assignment]:
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise SecretToolError("systemd EnvironmentFile is not valid UTF-8") from exc
+    except OSError as exc:
+        raise SecretToolError(f"cannot read settings file: {path}") from exc
+
+    assignments: list[Assignment] = []
+    position = 0
+    while position < len(text):
+        end = _line_end(text, position)
+        line = text[position:end]
+        stripped = line.lstrip(" \t\r")
+        if not stripped or stripped.startswith(("#", ";")):
+            position = end + (end < len(text))
+            continue
+        match = SYSTEMD_ASSIGNMENT_RE.match(line)
+        if match is None:
+            position = end + (end < len(text))
+            continue
+        value_start = position + match.end()
+        if value_start < len(text) and text[value_start] == "'":
+            value, consumed = _quoted_value(text, value_start, "'", path)
+        elif value_start < len(text) and text[value_start] == '"':
+            value, consumed = _systemd_double_quoted_value(text, value_start, path)
+        else:
+            value, consumed = _systemd_unquoted_value(text, value_start, path)
+        trailing_end = _line_end(text, consumed)
+        if text[consumed:trailing_end].strip(" \t\r"):
+            raise SecretToolError("systemd EnvironmentFile has unsupported trailing data")
+        assignments.append(Assignment(match.group(1), value))
+        position = trailing_end + (trailing_end < len(text))
     return assignments
 
 
@@ -284,7 +368,7 @@ def service_names(unit: str) -> set[str]:
     files = environment_file_specs(systemctl_property(unit, "EnvironmentFiles"))
     for path, ignore_errors in files:
         try:
-            assignments.extend(parse_env_file(path))
+            assignments.extend(parse_systemd_environment_file(path))
         except SecretToolError as exc:
             if ignore_errors:
                 continue

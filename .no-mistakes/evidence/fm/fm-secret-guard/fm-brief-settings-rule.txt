@@ -1,0 +1,3 @@
+# fm-brief live scaffold output: settings boundary delivered to a worker
+7. Use `'/home/curtis/.no-mistakes/worktrees/aa96bb817995/01M3CH3AJ49RY533KCFKPFFYBF/bin/fm-secrets.sh'` for every settings file or service environment; its `--help` owns the safe operations and limits.
+   Never use `cat`, `sed`, `nl`, or `grep` to read settings values, never read `/proc/*/environ`, and never run `systemctl show Environment` directly.

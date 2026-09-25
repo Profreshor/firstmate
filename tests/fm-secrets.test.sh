@@ -108,6 +108,30 @@ test_run_ignores_empty_secret_values() {
   pass "fm-secrets: empty secret settings do not corrupt output"
 }
 
+test_run_scrubs_short_selected_values() {
+  local env_file output
+  env_file="$TMP_ROOT/short-selected.env"
+  printf '%s\n' 'OTP=12345' > "$env_file"
+  output=$($TOOL run "$env_file" --only OTP -- sh -c 'printf "%s\\n" "$OTP"' 2>&1) \
+    || fail "run failed with a short selected value"
+  assert_not_contains "$output" '12345' "run leaked a short selected value"
+  assert_contains "$output" '<redacted:OTP>' "run did not scrub a short selected value"
+  pass "fm-secrets: run scrubs short selected values"
+}
+
+test_run_scrubs_stream_boundary() {
+  local env_file output
+  env_file="$TMP_ROOT/stream-boundary.env"
+  printf '%s\n' 'TOKEN=foobar' > "$env_file"
+  output=$($TOOL run "$env_file" --only TOKEN -- \
+    sh -c 'printf foo; printf bar >&2' 2>&1) \
+    || fail "run failed while scrubbing a stream boundary"
+  assert_not_contains "$output" 'foobar' "run leaked a value split across output streams"
+  assert_contains "$output" '<redacted:TOKEN>' \
+    "run did not scrub a value split across output streams"
+  pass "fm-secrets: run scrubs stream-boundary values"
+}
+
 test_run_rejects_trailing_quoted_data() {
   local env_file output rc
   env_file="$TMP_ROOT/trailing-quoted.env"
@@ -201,7 +225,7 @@ test_service_has_falls_back_to_unit_settings() {
   output=$(PATH="$FAKEBIN:$PATH" FM_TEST_UNIT_ENV="$unit_env" FM_TEST_INLINE_VALUE="$FAKE_INLINE" \
     $TOOL has --service fake-stopped.service UNIT_FILE_SETTING INLINE_SETTING UNSET_FILE_SETTING UNSET_INLINE_SETTING EXACT_FILE_MATCH EXACT_FILE_KEEP EXACT_INLINE_MATCH EXACT_INLINE_KEEP OVERRIDDEN_SETTING ESCAPED_UNSET ABSENT_SETTING 2>&1) \
     || fail "service has failed for unit declarations"
-  expected=$(printf '%s\n' 'UNIT_FILE_SETTING=yes' 'INLINE_SETTING=yes' 'UNSET_FILE_SETTING=no' 'UNSET_INLINE_SETTING=no' 'EXACT_FILE_MATCH=no' 'EXACT_FILE_KEEP=yes' 'EXACT_INLINE_MATCH=no' 'EXACT_INLINE_KEEP=yes' 'OVERRIDDEN_SETTING=no' 'ESCAPED_UNSET=no' 'ABSENT_SETTING=no')
+  expected=$(printf '%s\n' 'UNIT_FILE_SETTING=yes' 'INLINE_SETTING=yes' 'UNSET_FILE_SETTING=no' 'UNSET_INLINE_SETTING=no' 'EXACT_FILE_MATCH=unknown' 'EXACT_FILE_KEEP=yes' 'EXACT_INLINE_MATCH=unknown' 'EXACT_INLINE_KEEP=yes' 'OVERRIDDEN_SETTING=unknown' 'ESCAPED_UNSET=unknown' 'ABSENT_SETTING=unknown')
   [ "$output" = "$expected" ] || fail "service has returned unexpected unit booleans: $output"
   assert_no_fake_secret "$output" "service declaration has"
   pass "fm-secrets: service has safely reads EnvironmentFile and Environment declarations"
@@ -239,7 +263,7 @@ test_service_has_rejects_invalid_environment_file_characters() {
   pass "fm-secrets: service has rejects invalid EnvironmentFile characters"
 }
 
-test_service_has_marks_unread_passed_environment_unknown() {
+test_service_has_marks_unmodeled_environment_unknown() {
   local output expected
   printf '%s\n' \
     '#!/usr/bin/env bash' \
@@ -248,23 +272,24 @@ test_service_has_marks_unread_passed_environment_unknown() {
     '  *--property=EnvironmentFiles*) printf "\n" ;;' \
     '  *--property=Environment*) printf "\n" ;;' \
     '  *--property=UnsetEnvironment*) printf "\n" ;;' \
-    '  *--property=PassEnvironment*) printf "TYPESAFE_API_KEY\n" ;;' \
     '  *) exit 64 ;;' \
     'esac' > "$FAKEBIN/systemctl"
   chmod +x "$FAKEBIN/systemctl"
 
   output=$(PATH="$FAKEBIN:$PATH" $TOOL has --service fake-stopped.service \
-    TYPESAFE_API_KEY ABSENT_SETTING 2>&1) \
-    || fail "service has failed with PassEnvironment"
-  expected=$(printf '%s\n' 'TYPESAFE_API_KEY=unknown' 'ABSENT_SETTING=no')
-  [ "$output" = "$expected" ] || fail "service has misreported passed environment: $output"
-  pass "fm-secrets: service has marks unread passed environment unknown"
+    NOTIFY_SOCKET ABSENT_SETTING 2>&1) \
+    || fail "service has failed with unmodeled environment"
+  expected=$(printf '%s\n' 'NOTIFY_SOCKET=unknown' 'ABSENT_SETTING=unknown')
+  [ "$output" = "$expected" ] || fail "service has misreported unmodeled environment: $output"
+  pass "fm-secrets: service has marks unmodeled environment unknown"
 }
 
 test_help_owns_the_scrub_limit() {
   local help
   help=$($TOOL --help) || fail "--help failed"
   assert_contains "$help" 'at least 6 bytes long' "help omitted the scrub threshold"
+  assert_contains "$help" 'Every nonempty selected value' \
+    "help omitted selected-value scrubbing"
   assert_contains "$help" 'shorter than 6 bytes' "help omitted the short-value limit"
   assert_contains "$help" 'URL userinfo passwords' "help omitted the URL password exception"
   assert_contains "$help" 'exit status is preserved' "help omitted child status behavior"
@@ -276,11 +301,13 @@ test_names_and_has_never_print_values
 test_run_scrubs_all_file_values_and_preserves_status
 test_run_excludes_and_scrubs_ambient_secret_settings
 test_run_ignores_empty_secret_values
+test_run_scrubs_short_selected_values
+test_run_scrubs_stream_boundary
 test_run_rejects_trailing_quoted_data
 test_run_scrubs_empty_username_url_passwords
 test_run_scrubs_url_decoded_passwords
 test_service_has_reads_process_environment_without_values
 test_service_has_falls_back_to_unit_settings
 test_service_has_rejects_invalid_environment_file_characters
-test_service_has_marks_unread_passed_environment_unknown
+test_service_has_marks_unmodeled_environment_unknown
 test_help_owns_the_scrub_limit

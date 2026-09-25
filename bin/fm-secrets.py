@@ -368,14 +368,6 @@ def environment_file_specs(raw: str) -> list[tuple[str, bool]]:
     return specs
 
 
-def pass_environment_names(raw: str) -> set[str]:
-    try:
-        words = shlex.split(raw, posix=True)
-    except ValueError as exc:
-        raise SecretToolError("systemd PassEnvironment= data could not be parsed safely") from exc
-    return {word for word in words if NAME_RE.fullmatch(word)}
-
-
 def service_presence(unit: str, requested: Sequence[str]) -> dict[str, str]:
     if not unit or unit.startswith("-"):
         raise SecretToolError("a valid systemd unit name is required")
@@ -409,14 +401,11 @@ def service_presence(unit: str, requested: Sequence[str]) -> dict[str, str]:
         )
     }
     unconditionally_unset = {name for name, value in unsets if value is None}
-    unknown = pass_environment_names(systemctl_property(unit, "PassEnvironment"))
     return {
         name: (
             "yes"
             if name in present
-            else "unknown"
-            if name in unknown and name not in values and name not in unconditionally_unset
-            else "no"
+            else "no" if name in unconditionally_unset else "unknown"
         )
         for name in requested
     }
@@ -453,12 +442,18 @@ def command_has(args: Sequence[str]) -> int:
     return 0
 
 
-def known_scrubbers(assignments: Iterable[Assignment]) -> list[tuple[bytes, bytes]]:
+def known_scrubbers(
+    assignments: Iterable[Assignment], selected_names: Sequence[str] = ()
+) -> list[tuple[bytes, bytes]]:
     scrubbers: dict[bytes, bytes] = {}
     for assignment in assignments:
         encoded = assignment.value.encode("utf-8", errors="surrogateescape")
         replacement = f"<redacted:{assignment.name}>".encode("ascii")
-        if encoded and (len(encoded) >= MIN_SCRUB_BYTES or is_secret_name(assignment.name)):
+        if encoded and (
+            assignment.name in selected_names
+            or len(encoded) >= MIN_SCRUB_BYTES
+            or is_secret_name(assignment.name)
+        ):
             scrubbers.setdefault(encoded, replacement)
         for match in URL_PASSWORD_RE.finditer(encoded):
             password = match.group(2)
@@ -475,6 +470,20 @@ def scrub_output(data: bytes, scrubbers: Sequence[tuple[bytes, bytes]]) -> bytes
         return match.group(1) + b"<redacted:URL_PASSWORD>" + match.group(3)
 
     return URL_PASSWORD_RE.sub(redact_url_password, data)
+
+
+def scrub_stream_boundary(
+    stdout: bytes, stderr: bytes, scrubbers: Sequence[tuple[bytes, bytes]]
+) -> tuple[bytes, bytes]:
+    stdout = scrub_output(stdout, scrubbers)
+    stderr = scrub_output(stderr, scrubbers)
+    for value, replacement in scrubbers:
+        for split in range(1, len(value)):
+            if stdout.endswith(value[:split]) and stderr.startswith(value[split:]):
+                stdout = stdout[:-split] + replacement
+                stderr = stderr[len(value) - split :]
+                break
+    return stdout, stderr
 
 
 def command_run(args: Sequence[str]) -> int:
@@ -520,10 +529,12 @@ def command_run(args: Sequence[str]) -> int:
         raise SecretToolError("command could not be started") from exc
 
     scrubbers = known_scrubbers(
-        [*assignments, *(Assignment(name, value) for name, value in child_env.items() if is_secret_name(name))]
+        [*assignments, *(Assignment(name, value) for name, value in child_env.items() if is_secret_name(name))],
+        requested,
     )
-    sys.stdout.buffer.write(scrub_output(child.stdout, scrubbers))
-    sys.stderr.buffer.write(scrub_output(child.stderr, scrubbers))
+    stdout, stderr = scrub_stream_boundary(child.stdout, child.stderr, scrubbers)
+    sys.stdout.buffer.write(stdout)
+    sys.stderr.buffer.write(stderr)
     sys.stdout.buffer.flush()
     sys.stderr.buffer.flush()
     if child.returncode < 0:

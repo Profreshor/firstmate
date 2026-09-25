@@ -9,13 +9,14 @@
 #       Print NAME=yes, NAME=no, or NAME=unknown without any setting value.
 #       A running service's main-process environment is authoritative when it
 #       is readable; otherwise the unit's EnvironmentFile= and Environment=
-#       declarations are inspected. Manager values named by PassEnvironment=
-#       are reported as unknown rather than read.
+#       declarations are inspected. Values that could come from another
+#       systemd environment source are reported as unknown rather than read.
 #   run <env-file> --only NAME[,NAME...] -- <command...>
 #       Inherit only PATH, HOME, USER, LOGNAME, LANG, LC_*, TERM, TMPDIR, SHELL,
 #       and PWD, add only the selected names, run the command, and scrub its
-#       stdout and stderr. Every file value at least 6 bytes long is replaced
-#       with <redacted:NAME>. Values of PASS, PWD, SECRET, TOKEN, KEY, PIN,
+#       stdout and stderr. Every nonempty selected value and every other file
+#       value at least 6 bytes long is replaced with <redacted:NAME>. Values of
+#       PASS, PWD, SECRET, TOKEN, KEY, PIN,
 #       CREDENTIAL, or AUTH settings and URL userinfo passwords are scrubbed at
 #       any length. Other values shorter than 6 bytes are deliberately not
 #       scrubbed because replacing common short strings would corrupt ordinary

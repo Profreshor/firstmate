@@ -108,6 +108,19 @@ test_run_ignores_empty_secret_values() {
   pass "fm-secrets: empty secret settings do not corrupt output"
 }
 
+test_run_scrubs_empty_username_url_passwords() {
+  local env_file output
+  env_file="$TMP_ROOT/empty-username.env"
+  printf '%s\n' 'DATABASE_URL=postgres://:12345@db/x' > "$env_file"
+  output=$($TOOL run "$env_file" --only DATABASE_URL -- \
+    sh -c 'password=${DATABASE_URL#*://:}; printf "%s\n" "${password%@*}"' 2>&1) \
+    || fail "run failed with an empty URL username"
+  assert_not_contains "$output" '12345' "run leaked an empty-username URL password"
+  assert_contains "$output" '<redacted:DATABASE_URL>' \
+    "run did not scrub an empty-username URL password"
+  pass "fm-secrets: run scrubs empty-username URL passwords"
+}
+
 test_service_has_reads_process_environment_without_values() {
   local service_pid output expected
   env FM_FAKE_PROCESS_SETTING="$FAKE_PROCESS" sleep 30 &
@@ -174,6 +187,7 @@ test_names_and_has_never_print_values
 test_run_scrubs_all_file_values_and_preserves_status
 test_run_excludes_and_scrubs_ambient_secret_settings
 test_run_ignores_empty_secret_values
+test_run_scrubs_empty_username_url_passwords
 test_service_has_reads_process_environment_without_values
 test_service_has_falls_back_to_unit_settings
 test_help_owns_the_scrub_limit

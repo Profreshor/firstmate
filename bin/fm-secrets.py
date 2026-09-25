@@ -25,7 +25,7 @@ ASSIGNMENT_RE = re.compile(
     r"[ \t]*(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*=[ \t]*"
 )
 URL_PASSWORD_RE = re.compile(
-    rb"([A-Za-z][A-Za-z0-9+.-]*://[^\s/@:]+:)([^\s/@]+)(@[^\s]+)"
+    rb"([A-Za-z][A-Za-z0-9+.-]*://[^\s/@:]*:)([^\s/@]+)(@[^\s]+)"
 )
 MIN_SCRUB_BYTES = 6
 SECRET_NAME_RE = re.compile(r"PASS|PWD|SECRET|TOKEN|KEY|PIN|CREDENTIAL|AUTH", re.IGNORECASE)

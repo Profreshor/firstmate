@@ -364,7 +364,7 @@ def environment_file_specs(raw: str) -> list[tuple[str, bool]]:
             word = word[1:]
             ignore_errors = True
         if word:
-            specs.extend((path, ignore_errors) for path in (glob.glob(word) or [word]))
+            specs.extend((path, ignore_errors) for path in (sorted(glob.glob(word)) or [word]))
     return specs
 
 

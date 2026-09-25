@@ -323,6 +323,32 @@ test_service_has_falls_back_to_unit_settings() {
   pass "fm-secrets: service has safely reads EnvironmentFile and Environment declarations"
 }
 
+test_service_has_orders_wildcard_environment_files() {
+  local unit_envs output
+  unit_envs="$TMP_ROOT/wildcard-unit-envs"
+  mkdir -p "$unit_envs"
+  printf '%s\n' 'TOKEN=remove' > "$unit_envs/20.env"
+  printf '%s\n' 'TOKEN=keep' > "$unit_envs/10.env"
+  # shellcheck disable=SC2016 # The generated stub expands this at execution time.
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'case "$*" in' \
+    '  *--property=MainPID*) printf "0\n" ;;' \
+    '  *--property=EnvironmentFiles*) printf "%s/*\n" "${FM_TEST_UNIT_ENVS:?}" ;;' \
+    '  *--property=Environment*) printf "\n" ;;' \
+    '  *--property=UnsetEnvironment*) printf "TOKEN=remove\n" ;;' \
+    '  *) exit 64 ;;' \
+    'esac' > "$FAKEBIN/systemctl"
+  chmod +x "$FAKEBIN/systemctl"
+
+  output=$(PATH="$FAKEBIN:$PATH" FM_TEST_UNIT_ENVS="$unit_envs" \
+    $TOOL has --service fake-wildcard.service TOKEN 2>&1) \
+    || fail "service has failed for wildcard EnvironmentFiles"
+  [ "$output" = 'TOKEN=unknown' ] \
+    || fail "service has did not apply wildcard EnvironmentFiles in order: $output"
+  pass "fm-secrets: service has orders wildcard EnvironmentFiles"
+}
+
 test_service_has_rejects_invalid_environment_file_characters() {
   local env_file invalid output rc
   env_file="$TMP_ROOT/invalid-unit.env"
@@ -437,6 +463,7 @@ test_run_scrubs_empty_username_url_passwords
 test_run_scrubs_url_decoded_passwords
 test_service_has_reads_process_environment_without_values
 test_service_has_falls_back_to_unit_settings
+test_service_has_orders_wildcard_environment_files
 test_service_has_rejects_invalid_environment_file_characters
 test_service_has_only_ignores_missing_optional_environment_files
 test_service_has_marks_unmodeled_environment_unknown

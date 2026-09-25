@@ -1283,8 +1283,8 @@ test_crewmate_scaffolds_forbid_pool_administration() {
   # One shared string, not two copies: the emitted rule must be byte-identical
   # across the ship and scout scaffolds so a later edit cannot fix one and miss
   # the other.
-  ship_rule=$(awk '/^7\. Never administer/,/^$/' "$home/data/brief-pool-no-mistakes/brief.md")
-  scout_rule=$(awk '/^7\. Never administer/,/^$/' "$brief")
+  ship_rule=$(awk '/^8\. Never administer/,/^$/' "$home/data/brief-pool-no-mistakes/brief.md")
+  scout_rule=$(awk '/^8\. Never administer/,/^$/' "$brief")
   [ -n "$ship_rule" ] || fail "ship brief emitted no shared-infrastructure rule to compare"
   [ "$ship_rule" = "$scout_rule" ] \
     || fail "ship and scout shared-infrastructure rules have drifted apart"
@@ -1305,6 +1305,50 @@ test_crewmate_scaffolds_forbid_pool_administration() {
     "secondmate charter must not inherit the crewmate pool-administration prohibition"
 
   pass "fm-brief.sh: every crewmate scaffold forbids administering the shared worktree pool"
+}
+
+test_crewmate_scaffolds_require_the_settings_tool() {
+  local home id brief mode ship_rule scout_rule secondmate_rule
+  home="$TMP_ROOT/settings-rule-home"
+  mkdir -p "$home/data"
+
+  for mode in no-mistakes direct-PR local-only; do
+    id="brief-settings-$mode"
+    FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" alpha --mode "$mode" >/dev/null 2>&1 \
+      || fail "fm-brief.sh --mode $mode exited non-zero"
+    brief="$home/data/$id/brief.md"
+    assert_grep 'bin/fm-secrets.sh' "$brief" "$mode ship brief omitted the settings tool"
+    assert_grep "$ROOT/bin/fm-secrets.sh" "$brief" \
+      "$mode ship brief did not render the firstmate-owned tool's absolute path"
+    # shellcheck disable=SC2016 # Backtick-wrapped commands are literal brief text.
+    assert_grep 'never read `/proc/*/environ`' "$brief" \
+      "$mode ship brief did not prohibit direct process-environment reads"
+    # shellcheck disable=SC2016 # Backtick-wrapped commands are literal brief text.
+    assert_grep 'never run `systemctl show Environment` directly' "$brief" \
+      "$mode ship brief did not prohibit direct systemd environment reads"
+  done
+
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-settings-scout alpha --scout >/dev/null 2>&1 \
+    || fail "fm-brief.sh --scout exited non-zero"
+  brief="$home/data/brief-settings-scout/brief.md"
+  ship_rule=$(awk '/^7[.] Use / { print; getline; print }' "$home/data/brief-settings-no-mistakes/brief.md")
+  scout_rule=$(awk '/^7[.] Use / { print; getline; print }' "$brief")
+  [ -n "$ship_rule" ] || fail "ship brief emitted no shared settings rule to compare"
+  [ "$ship_rule" = "$scout_rule" ] \
+    || fail "ship and scout shared settings rules have drifted apart"
+  # shellcheck disable=SC2016 # Backtick-wrapped commands are literal brief text.
+  assert_grep 'Never use `cat`, `sed`, `nl`, or `grep`' "$brief" \
+    "scout brief omitted the direct settings-file read prohibition"
+  # shellcheck disable=SC2016 # Backtick-wrapped option is literal brief text.
+  assert_grep 'its `--help` owns' "$brief" "scout brief did not point to the mechanics owner"
+
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-settings-secondmate --secondmate --no-projects >/dev/null 2>&1 \
+    || fail "fm-brief.sh --secondmate exited non-zero"
+  secondmate_rule=$(awk '/^7[.] Use / { print; getline; print }' "$home/data/brief-settings-secondmate/brief.md")
+  [ "$ship_rule" = "$secondmate_rule" ] \
+    || fail "secondmate charter omitted or changed the shared settings rule"
+
+  pass "fm-brief.sh: every worker scaffold requires the safe settings tool"
 }
 
 test_script_parses
@@ -1341,3 +1385,4 @@ test_branch_prefix_is_refused_where_it_does_not_apply
 test_branch_prefix_value_is_validated
 test_branch_prefix_command_is_shell_safe
 test_crewmate_scaffolds_forbid_pool_administration
+test_crewmate_scaffolds_require_the_settings_tool

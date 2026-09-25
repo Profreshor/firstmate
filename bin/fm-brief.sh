@@ -327,6 +327,12 @@ shell_quote() {
   printf "'"
 }
 
+FM_SECRETS_TOOL=$(shell_quote "$FM_ROOT/bin/fm-secrets.sh")
+# shellcheck disable=SC2016 # Backtick-wrapped commands are literal brief text.
+SHARED_SETTINGS_RULE=$(printf '%s\n' \
+  "7. Use \`$FM_SECRETS_TOOL\` for every settings file or service environment; its \`--help\` owns the safe operations and limits." \
+  '   Never use `cat`, `sed`, `nl`, or `grep` to read settings values, never read `/proc/*/environ`, and never run `systemctl show Environment` directly.')
+
 STATUS_FILE=$(shell_quote "$STATE/$ID.status")
 # The worker's status command: the plain append always carries the line, then
 # the opt-in fleet ledger (docs/fleet-ledger.md) records it at once, costing one
@@ -431,6 +437,8 @@ When a keyed phase ends without another reportable state, append \`resolved [key
 The main firstmate's answer normally writes that closing line at answer time; when a blocker or wait clears WITHOUT an answer from the main firstmate, append \`resolved [at=<epoch>]: {how it cleared}\` yourself (keyed with \`[key=<slug>]\` if you opened it with one) as your domain resumes.
 Routine internal supervision, heartbeats, retries, and crewmate churn stay inside your own home and must not touch that status file.
 
+$SHARED_SETTINGS_RULE
+
 # Definition of done
 You are persistent by default. Do not exit just because your queue is empty.
 On startup and restart, run normal firstmate bootstrap and recovery through \`bin/fm-session-start.sh\` for your own home, but only to RECONCILE work that is already yours: in-flight crewmates, tracked backlog items, and durable watches recorded in this home.
@@ -490,12 +498,12 @@ IFS= read -r -d '' TASK_SECTION <<'EOF' || true
 EOF
 TASK_SECTION=${TASK_SECTION%$'\n'}
 
-# One shared string keeps the ship and scout infrastructure rule identical.
+# Shared strings keep the ship and scout safety rules identical.
 # Rule 2 governs file edits, so it does not prohibit pool administration.
-# The secondmate charter deliberately omits this rule because a secondmate
+# The secondmate charter deliberately omits the infrastructure rule because a secondmate
 # legitimately allocates and returns slots for crewmates in its own home.
 IFS= read -r -d '' SHARED_INFRA_RULE <<'EOF' || true
-7. Never administer infrastructure that every lane shares. Two things are shared:
+8. Never administer infrastructure that every lane shares. Two things are shared:
    - The `no-mistakes` daemon - one instance serving every lane/home, so stopping, restarting, or
      updating it kills other lanes' in-flight pipeline runs; only firstmate manages the daemon.
      Before you append `blocked:` about the pipeline, run `no-mistakes daemon status` and
@@ -564,6 +572,7 @@ The report is the only thing that survives, so anything worth keeping must be in
    append \`needs-decision [at=<epoch>]: {summary of options}\` and stop. Firstmate will reply with the decision.
    A decision or blocker you opened stays open until a \`resolved\` line carrying its exact key lands; a later \`done:\` or \`working:\` line never closes it, even when the answer is what started that work.
    Firstmate's reply normally writes that closing line at answer time; when a blocker or wait clears WITHOUT a firstmate reply, append \`resolved [at=<epoch>]: {how it cleared}\` yourself (same \`[key=<slug>]\` if you opened it with one) as you resume.
+$SHARED_SETTINGS_RULE
 $SHARED_INFRA_RULE
 
 $INBOX_SECTION
@@ -645,6 +654,7 @@ $RULE1
 $ASK_USER_BLOCK
    A decision or blocker you opened stays open until a \`resolved\` line carrying its exact key lands; a later \`done:\` or \`working:\` line never closes it, even when the answer is what started that work.
    Firstmate's reply normally writes that closing line at answer time; when a blocker or wait clears WITHOUT a firstmate reply, append \`resolved [at=<epoch>]: {how it cleared}\` yourself (same \`[key=<slug>]\` if you opened it with one) as you resume.
+$SHARED_SETTINGS_RULE
 $SHARED_INFRA_RULE
 
 $INBOX_SECTION

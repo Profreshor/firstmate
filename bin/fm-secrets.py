@@ -18,6 +18,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
+from urllib.parse import unquote_to_bytes
 
 
 NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -235,6 +236,14 @@ def environment_declaration_names(raw: str) -> set[str]:
     return names
 
 
+def unset_environment_names(raw: str) -> set[str]:
+    try:
+        words = shlex.split(raw, posix=True)
+    except ValueError as exc:
+        raise SecretToolError("systemd UnsetEnvironment= data could not be parsed safely") from exc
+    return {word.partition("=")[0] for word in words if NAME_RE.fullmatch(word.partition("=")[0])}
+
+
 def environment_file_specs(raw: str) -> list[tuple[str, bool]]:
     try:
         words = shlex.split(raw, posix=True)
@@ -274,6 +283,9 @@ def service_names(unit: str) -> set[str]:
             raise SecretToolError(
                 "cannot inspect a required systemd EnvironmentFile safely"
             ) from exc
+    names.difference_update(
+        unset_environment_names(systemctl_property(unit, "UnsetEnvironment"))
+    )
     return names
 
 
@@ -316,6 +328,7 @@ def known_scrubbers(assignments: Iterable[Assignment]) -> list[tuple[bytes, byte
         for match in URL_PASSWORD_RE.finditer(encoded):
             password = match.group(2)
             scrubbers.setdefault(password, replacement)
+            scrubbers.setdefault(unquote_to_bytes(password), replacement)
     return sorted(scrubbers.items(), key=lambda item: len(item[0]), reverse=True)
 
 

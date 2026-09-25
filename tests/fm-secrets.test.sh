@@ -121,6 +121,19 @@ test_run_scrubs_empty_username_url_passwords() {
   pass "fm-secrets: run scrubs empty-username URL passwords"
 }
 
+test_run_scrubs_url_decoded_passwords() {
+  local env_file output
+  env_file="$TMP_ROOT/encoded-password.env"
+  printf '%s\n' 'DATABASE_URL=postgres://user:a%20b@db/x' > "$env_file"
+  output=$($TOOL run "$env_file" --only DATABASE_URL -- \
+    python3 -c 'from os import environ; from urllib.parse import unquote; print(unquote(environ["DATABASE_URL"].split("@", 1)[0].rsplit(":", 1)[1]))' 2>&1) \
+    || fail "run failed with a percent-encoded URL password"
+  assert_not_contains "$output" 'a b' "run leaked a decoded URL password"
+  assert_contains "$output" '<redacted:DATABASE_URL>' \
+    "run did not scrub a decoded URL password"
+  pass "fm-secrets: run scrubs decoded URL passwords"
+}
+
 test_service_has_reads_process_environment_without_values() {
   local service_pid output expected
   env FM_FAKE_PROCESS_SETTING="$FAKE_PROCESS" sleep 30 &
@@ -152,22 +165,23 @@ test_service_has_reads_process_environment_without_values() {
 test_service_has_falls_back_to_unit_settings() {
   local unit_env output expected
   unit_env="$TMP_ROOT/unit.env"
-  printf '%s\n' "UNIT_FILE_SETTING=${FAKE_QUOTED}" > "$unit_env"
+  printf '%s\n' "UNIT_FILE_SETTING=${FAKE_QUOTED}" 'UNSET_FILE_SETTING=value' > "$unit_env"
   # shellcheck disable=SC2016 # The generated stub expands these at execution time.
   printf '%s\n' \
     '#!/usr/bin/env bash' \
     'case "$*" in' \
     '  *--property=MainPID*) printf "0\n" ;;' \
     '  *--property=EnvironmentFiles*) printf "%s (ignore_errors=no)\n" "${FM_TEST_UNIT_ENV:?}" ;;' \
-    '  *--property=Environment*) printf "INLINE_SETTING=%s\n" "${FM_TEST_INLINE_VALUE:?}" ;;' \
+    '  *--property=Environment*) printf "INLINE_SETTING=%s UNSET_INLINE_SETTING=value\n" "${FM_TEST_INLINE_VALUE:?}" ;;' \
+    '  *--property=UnsetEnvironment*) printf "UNSET_FILE_SETTING UNSET_INLINE_SETTING\n" ;;' \
     '  *) exit 64 ;;' \
     'esac' > "$FAKEBIN/systemctl"
   chmod +x "$FAKEBIN/systemctl"
 
   output=$(PATH="$FAKEBIN:$PATH" FM_TEST_UNIT_ENV="$unit_env" FM_TEST_INLINE_VALUE="$FAKE_INLINE" \
-    $TOOL has --service fake-stopped.service UNIT_FILE_SETTING INLINE_SETTING ABSENT_SETTING 2>&1) \
+    $TOOL has --service fake-stopped.service UNIT_FILE_SETTING INLINE_SETTING UNSET_FILE_SETTING UNSET_INLINE_SETTING ABSENT_SETTING 2>&1) \
     || fail "service has failed for unit declarations"
-  expected=$(printf '%s\n' 'UNIT_FILE_SETTING=yes' 'INLINE_SETTING=yes' 'ABSENT_SETTING=no')
+  expected=$(printf '%s\n' 'UNIT_FILE_SETTING=yes' 'INLINE_SETTING=yes' 'UNSET_FILE_SETTING=no' 'UNSET_INLINE_SETTING=no' 'ABSENT_SETTING=no')
   [ "$output" = "$expected" ] || fail "service has returned unexpected unit booleans: $output"
   assert_no_fake_secret "$output" "service declaration has"
   pass "fm-secrets: service has safely reads EnvironmentFile and Environment declarations"
@@ -188,6 +202,7 @@ test_run_scrubs_all_file_values_and_preserves_status
 test_run_excludes_and_scrubs_ambient_secret_settings
 test_run_ignores_empty_secret_values
 test_run_scrubs_empty_username_url_passwords
+test_run_scrubs_url_decoded_passwords
 test_service_has_reads_process_environment_without_values
 test_service_has_falls_back_to_unit_settings
 test_help_owns_the_scrub_limit

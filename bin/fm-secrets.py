@@ -294,12 +294,13 @@ def service_names(unit: str) -> set[str]:
     unsets = unset_environment_assignments(
         systemctl_property(unit, "UnsetEnvironment")
     )
+    values = {assignment.name: assignment.value for assignment in assignments}
     return {
-        assignment.name
-        for assignment in assignments
+        name
+        for name, value in values.items()
         if not any(
-            assignment.name == name and (value is None or assignment.value == value)
-            for name, value in unsets
+            name == unset_name and (unset_value is None or value == unset_value)
+            for unset_name, unset_value in unsets
         )
     }
 

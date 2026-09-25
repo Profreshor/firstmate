@@ -303,6 +303,37 @@ test_service_has_rejects_invalid_environment_file_characters() {
   pass "fm-secrets: service has rejects invalid EnvironmentFile characters"
 }
 
+test_service_has_only_ignores_missing_optional_environment_files() {
+  local env_file missing_file output rc
+  env_file="$TMP_ROOT/optional-unit.env"
+  missing_file="$TMP_ROOT/missing-optional-unit.env"
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'case "$*" in' \
+    '  *--property=MainPID*) printf "0\n" ;;' \
+    '  *--property=EnvironmentFiles*) printf -- "-%s\n" "${FM_TEST_UNIT_ENV:?}" ;;' \
+    '  *--property=Environment*) printf "TOKEN=value\n" ;;' \
+    '  *--property=UnsetEnvironment*) printf "\n" ;;' \
+    '  *) exit 64 ;;' \
+    'esac' > "$FAKEBIN/systemctl"
+  chmod +x "$FAKEBIN/systemctl"
+
+  output=$(PATH="$FAKEBIN:$PATH" FM_TEST_UNIT_ENV="$missing_file" \
+    $TOOL has --service fake-optional.service TOKEN 2>&1) \
+    || fail "service has failed with a missing optional EnvironmentFile"
+  [ "$output" = 'TOKEN=yes' ] || fail "service has did not ignore a missing optional EnvironmentFile: $output"
+
+  printf 'TOKEN=value\377\n' > "$env_file"
+  output=$(PATH="$FAKEBIN:$PATH" FM_TEST_UNIT_ENV="$env_file" \
+    $TOOL has --service fake-optional.service TOKEN 2>&1)
+  rc=$?
+  expect_code 2 "$rc" "service has must reject a malformed optional EnvironmentFile"
+  assert_not_contains "$output" 'value' "optional EnvironmentFile failure exposed its value"
+  assert_contains "$output" 'cannot inspect a required systemd EnvironmentFile safely' \
+    "service has did not fail closed for a malformed optional EnvironmentFile"
+  pass "fm-secrets: service has only ignores missing optional EnvironmentFiles"
+}
+
 test_service_has_marks_unmodeled_environment_unknown() {
   local output expected
   printf '%s\n' \
@@ -352,5 +383,6 @@ test_run_scrubs_url_decoded_passwords
 test_service_has_reads_process_environment_without_values
 test_service_has_falls_back_to_unit_settings
 test_service_has_rejects_invalid_environment_file_characters
+test_service_has_only_ignores_missing_optional_environment_files
 test_service_has_marks_unmodeled_environment_unknown
 test_help_owns_the_scrub_limit

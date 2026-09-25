@@ -380,11 +380,18 @@ def service_presence(unit: str, requested: Sequence[str]) -> dict[str, str]:
     )
     files = environment_file_specs(systemctl_property(unit, "EnvironmentFiles"))
     for path, ignore_errors in files:
+        if ignore_errors:
+            try:
+                Path(path).stat()
+            except FileNotFoundError:
+                continue
+            except OSError as exc:
+                raise SecretToolError(
+                    "cannot inspect a required systemd EnvironmentFile safely"
+                ) from exc
         try:
             assignments.extend(parse_systemd_environment_file(path))
         except SecretToolError as exc:
-            if ignore_errors:
-                continue
             raise SecretToolError(
                 "cannot inspect a required systemd EnvironmentFile safely"
             ) from exc

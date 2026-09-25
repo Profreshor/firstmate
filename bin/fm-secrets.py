@@ -4,6 +4,7 @@
 The shell entry point owns the public help and invocation contract. This helper
 keeps secret-bearing data inside one process and never includes a value in an
 error or diagnostic.
+Byte-exact parsing and scrubbing deliberately use Python, following existing bin-helper precedent.
 """
 
 from __future__ import annotations
@@ -223,25 +224,30 @@ def process_environment_names(pid_text: str) -> set[str] | None:
     return names
 
 
-def environment_declaration_names(raw: str) -> set[str]:
+def environment_declaration_assignments(raw: str) -> list[Assignment]:
     try:
         words = shlex.split(raw, posix=True)
     except ValueError as exc:
         raise SecretToolError("systemd Environment= data could not be parsed safely") from exc
-    names: set[str] = set()
+    assignments: list[Assignment] = []
     for word in words:
-        name, separator, _value = word.partition("=")
+        name, separator, value = word.partition("=")
         if separator and NAME_RE.fullmatch(name):
-            names.add(name)
-    return names
+            assignments.append(Assignment(name, value))
+    return assignments
 
 
-def unset_environment_names(raw: str) -> set[str]:
+def unset_environment_assignments(raw: str) -> list[tuple[str, str | None]]:
     try:
         words = shlex.split(raw, posix=True)
     except ValueError as exc:
         raise SecretToolError("systemd UnsetEnvironment= data could not be parsed safely") from exc
-    return {word.partition("=")[0] for word in words if NAME_RE.fullmatch(word.partition("=")[0])}
+    unsets: list[tuple[str, str | None]] = []
+    for word in words:
+        name, separator, value = word.partition("=")
+        if NAME_RE.fullmatch(name):
+            unsets.append((name, value if separator else None))
+    return unsets
 
 
 def environment_file_specs(raw: str) -> list[tuple[str, bool]]:
@@ -272,21 +278,30 @@ def service_names(unit: str) -> set[str]:
     if running is not None:
         return running
 
-    names = environment_declaration_names(systemctl_property(unit, "Environment"))
+    assignments = environment_declaration_assignments(
+        systemctl_property(unit, "Environment")
+    )
     files = environment_file_specs(systemctl_property(unit, "EnvironmentFiles"))
     for path, ignore_errors in files:
         try:
-            names.update(unique_names(parse_env_file(path)))
+            assignments.extend(parse_env_file(path))
         except SecretToolError as exc:
             if ignore_errors:
                 continue
             raise SecretToolError(
                 "cannot inspect a required systemd EnvironmentFile safely"
             ) from exc
-    names.difference_update(
-        unset_environment_names(systemctl_property(unit, "UnsetEnvironment"))
+    unsets = unset_environment_assignments(
+        systemctl_property(unit, "UnsetEnvironment")
     )
-    return names
+    return {
+        assignment.name
+        for assignment in assignments
+        if not any(
+            assignment.name == name and (value is None or assignment.value == value)
+            for name, value in unsets
+        )
+    }
 
 
 def command_names(args: Sequence[str]) -> int:

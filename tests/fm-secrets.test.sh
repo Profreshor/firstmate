@@ -165,23 +165,27 @@ test_service_has_reads_process_environment_without_values() {
 test_service_has_falls_back_to_unit_settings() {
   local unit_env output expected
   unit_env="$TMP_ROOT/unit.env"
-  printf '%s\n' "UNIT_FILE_SETTING=${FAKE_QUOTED}" 'UNSET_FILE_SETTING=value' > "$unit_env"
+  printf '%s\n' \
+    "UNIT_FILE_SETTING=${FAKE_QUOTED}" \
+    'UNSET_FILE_SETTING=value' \
+    'EXACT_FILE_MATCH=actual' \
+    'EXACT_FILE_KEEP=actual' > "$unit_env"
   # shellcheck disable=SC2016 # The generated stub expands these at execution time.
   printf '%s\n' \
     '#!/usr/bin/env bash' \
     'case "$*" in' \
     '  *--property=MainPID*) printf "0\n" ;;' \
     '  *--property=EnvironmentFiles*) printf "%s (ignore_errors=no)\n" "${FM_TEST_UNIT_ENV:?}" ;;' \
-    '  *--property=Environment*) printf "INLINE_SETTING=%s UNSET_INLINE_SETTING=value\n" "${FM_TEST_INLINE_VALUE:?}" ;;' \
-    '  *--property=UnsetEnvironment*) printf "UNSET_FILE_SETTING UNSET_INLINE_SETTING\n" ;;' \
+    '  *--property=Environment*) printf "INLINE_SETTING=%s UNSET_INLINE_SETTING=value EXACT_INLINE_MATCH=actual EXACT_INLINE_KEEP=actual\n" "${FM_TEST_INLINE_VALUE:?}" ;;' \
+    '  *--property=UnsetEnvironment*) printf "UNSET_FILE_SETTING UNSET_INLINE_SETTING EXACT_FILE_MATCH=actual EXACT_FILE_KEEP=other EXACT_INLINE_MATCH=actual EXACT_INLINE_KEEP=other\n" ;;' \
     '  *) exit 64 ;;' \
     'esac' > "$FAKEBIN/systemctl"
   chmod +x "$FAKEBIN/systemctl"
 
   output=$(PATH="$FAKEBIN:$PATH" FM_TEST_UNIT_ENV="$unit_env" FM_TEST_INLINE_VALUE="$FAKE_INLINE" \
-    $TOOL has --service fake-stopped.service UNIT_FILE_SETTING INLINE_SETTING UNSET_FILE_SETTING UNSET_INLINE_SETTING ABSENT_SETTING 2>&1) \
+    $TOOL has --service fake-stopped.service UNIT_FILE_SETTING INLINE_SETTING UNSET_FILE_SETTING UNSET_INLINE_SETTING EXACT_FILE_MATCH EXACT_FILE_KEEP EXACT_INLINE_MATCH EXACT_INLINE_KEEP ABSENT_SETTING 2>&1) \
     || fail "service has failed for unit declarations"
-  expected=$(printf '%s\n' 'UNIT_FILE_SETTING=yes' 'INLINE_SETTING=yes' 'UNSET_FILE_SETTING=no' 'UNSET_INLINE_SETTING=no' 'ABSENT_SETTING=no')
+  expected=$(printf '%s\n' 'UNIT_FILE_SETTING=yes' 'INLINE_SETTING=yes' 'UNSET_FILE_SETTING=no' 'UNSET_INLINE_SETTING=no' 'EXACT_FILE_MATCH=no' 'EXACT_FILE_KEEP=yes' 'EXACT_INLINE_MATCH=no' 'EXACT_INLINE_KEEP=yes' 'ABSENT_SETTING=no')
   [ "$output" = "$expected" ] || fail "service has returned unexpected unit booleans: $output"
   assert_no_fake_secret "$output" "service declaration has"
   pass "fm-secrets: service has safely reads EnvironmentFile and Environment declarations"

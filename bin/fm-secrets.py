@@ -28,6 +28,7 @@ URL_PASSWORD_RE = re.compile(
     rb"([A-Za-z][A-Za-z0-9+.-]*://[^\s/@:]+:)([^\s/@]+)(@[^\s]+)"
 )
 MIN_SCRUB_BYTES = 6
+SECRET_NAME_RE = re.compile(r"PASS|PWD|SECRET|TOKEN|KEY|PIN|CREDENTIAL|AUTH", re.IGNORECASE)
 
 
 class SecretToolError(Exception):
@@ -162,6 +163,10 @@ def unique_names(assignments: Iterable[Assignment]) -> list[str]:
 
 def final_values(assignments: Iterable[Assignment]) -> dict[str, str]:
     return {assignment.name: assignment.value for assignment in assignments}
+
+
+def is_secret_name(name: str) -> bool:
+    return SECRET_NAME_RE.search(name) is not None
 
 
 def validate_names(names: Sequence[str]) -> None:
@@ -306,12 +311,11 @@ def known_scrubbers(assignments: Iterable[Assignment]) -> list[tuple[bytes, byte
     for assignment in assignments:
         encoded = assignment.value.encode("utf-8", errors="surrogateescape")
         replacement = f"<redacted:{assignment.name}>".encode("ascii")
-        if len(encoded) >= MIN_SCRUB_BYTES:
+        if len(encoded) >= MIN_SCRUB_BYTES or is_secret_name(assignment.name):
             scrubbers.setdefault(encoded, replacement)
         for match in URL_PASSWORD_RE.finditer(encoded):
             password = match.group(2)
-            if len(password) >= MIN_SCRUB_BYTES:
-                scrubbers.setdefault(password, replacement)
+            scrubbers.setdefault(password, replacement)
     return sorted(scrubbers.items(), key=lambda item: len(item[0]), reverse=True)
 
 
@@ -320,9 +324,6 @@ def scrub_output(data: bytes, scrubbers: Sequence[tuple[bytes, bytes]]) -> bytes
         data = data.replace(value, replacement)
 
     def redact_url_password(match: re.Match[bytes]) -> bytes:
-        password = match.group(2)
-        if len(password) < MIN_SCRUB_BYTES:
-            return match.group(0)
         return match.group(1) + b"<redacted:URL_PASSWORD>" + match.group(3)
 
     return URL_PASSWORD_RE.sub(redact_url_password, data)
@@ -350,9 +351,12 @@ def command_run(args: Sequence[str]) -> int:
     if missing:
         raise SecretToolError("settings file is missing requested names: " + ",".join(missing))
 
-    child_env = os.environ.copy()
-    for name in values:
-        child_env.pop(name, None)
+    child_env = {
+        name: value
+        for name, value in os.environ.items()
+        if name in {"PATH", "HOME", "USER", "LOGNAME", "LANG", "TERM", "TMPDIR", "SHELL", "PWD"}
+        or name.startswith("LC_")
+    }
     for name in requested:
         child_env[name] = values[name]
 
@@ -367,7 +371,9 @@ def command_run(args: Sequence[str]) -> int:
     except OSError as exc:
         raise SecretToolError("command could not be started") from exc
 
-    scrubbers = known_scrubbers(assignments)
+    scrubbers = known_scrubbers(
+        [*assignments, *(Assignment(name, value) for name, value in child_env.items() if is_secret_name(name))]
+    )
     sys.stdout.buffer.write(scrub_output(child.stdout, scrubbers))
     sys.stderr.buffer.write(scrub_output(child.stderr, scrubbers))
     sys.stdout.buffer.flush()

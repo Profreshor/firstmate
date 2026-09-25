@@ -1308,7 +1308,7 @@ test_crewmate_scaffolds_forbid_pool_administration() {
 }
 
 test_crewmate_scaffolds_require_the_settings_tool() {
-  local home id brief mode ship_rule scout_rule
+  local home id brief mode ship_rule scout_rule secondmate_rule
   home="$TMP_ROOT/settings-rule-home"
   mkdir -p "$home/data"
 
@@ -1331,8 +1331,8 @@ test_crewmate_scaffolds_require_the_settings_tool() {
   FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-settings-scout alpha --scout >/dev/null 2>&1 \
     || fail "fm-brief.sh --scout exited non-zero"
   brief="$home/data/brief-settings-scout/brief.md"
-  ship_rule=$(awk '/^7[.] Use /,/^$/' "$home/data/brief-settings-no-mistakes/brief.md")
-  scout_rule=$(awk '/^7[.] Use /,/^$/' "$brief")
+  ship_rule=$(awk '/^7[.] Use / { print; getline; print }' "$home/data/brief-settings-no-mistakes/brief.md")
+  scout_rule=$(awk '/^7[.] Use / { print; getline; print }' "$brief")
   [ -n "$ship_rule" ] || fail "ship brief emitted no shared settings rule to compare"
   [ "$ship_rule" = "$scout_rule" ] \
     || fail "ship and scout shared settings rules have drifted apart"
@@ -1342,7 +1342,13 @@ test_crewmate_scaffolds_require_the_settings_tool() {
   # shellcheck disable=SC2016 # Backtick-wrapped option is literal brief text.
   assert_grep 'its `--help` owns' "$brief" "scout brief did not point to the mechanics owner"
 
-  pass "fm-brief.sh: every crewmate scaffold requires the safe settings tool"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-settings-secondmate --secondmate --no-projects >/dev/null 2>&1 \
+    || fail "fm-brief.sh --secondmate exited non-zero"
+  secondmate_rule=$(awk '/^7[.] Use / { print; getline; print }' "$home/data/brief-settings-secondmate/brief.md")
+  [ "$ship_rule" = "$secondmate_rule" ] \
+    || fail "secondmate charter omitted or changed the shared settings rule"
+
+  pass "fm-brief.sh: every worker scaffold requires the safe settings tool"
 }
 
 test_script_parses

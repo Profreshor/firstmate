@@ -11,12 +11,14 @@
 #       is readable; otherwise the unit's EnvironmentFile= and Environment=
 #       declarations are inspected.
 #   run <env-file> --only NAME[,NAME...] -- <command...>
-#       Remove every variable named by the file from the inherited environment,
-#       add only the selected names, run the command, and scrub its stdout and
-#       stderr. Every file value at least 6 bytes long is replaced with
-#       <redacted:NAME>. Passwords at least 6 bytes long in URL userinfo are
-#       scrubbed too. Values shorter than 6 bytes are deliberately not scrubbed
-#       because replacing common short strings would corrupt ordinary output.
+#       Inherit only PATH, HOME, USER, LOGNAME, LANG, LC_*, TERM, TMPDIR, SHELL,
+#       and PWD, add only the selected names, run the command, and scrub its
+#       stdout and stderr. Every file value at least 6 bytes long is replaced
+#       with <redacted:NAME>. Values of PASS, PWD, SECRET, TOKEN, KEY, PIN,
+#       CREDENTIAL, or AUTH settings and URL userinfo passwords are scrubbed at
+#       any length. Other values shorter than 6 bytes are deliberately not
+#       scrubbed because replacing common short strings would corrupt ordinary
+#       output.
 #       The child's exit status is preserved.
 #
 # Env files accept leading whitespace, an optional export prefix, comments,

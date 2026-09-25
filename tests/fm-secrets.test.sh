@@ -18,6 +18,8 @@ FAKE_MULTI_B=fake_multiline_second_20260924
 FAKE_NON_INJECTED=fake_non_injected_value_20260924
 FAKE_PROCESS=fake_process_value_20260924
 FAKE_INLINE=fake_inline_value_20260924
+FAKE_PIN=12345
+FAKE_AMBIENT_KEY=fake_ambient_typesafe_key_20260924
 
 printf '%s\n' \
   '# synthetic settings - never real credentials' \
@@ -28,13 +30,15 @@ printf '%s\n' \
   "${FAKE_MULTI_B}\"" \
   "URL_PASSWORD=${FAKE_URL_PASSWORD}" \
   "NON_INJECTED_VALUE=${FAKE_NON_INJECTED}" \
+  "PIN=${FAKE_PIN}" \
   'SHORT_VALUE=abc' > "$ENV_FILE"
 
 assert_no_fake_secret() {
   local output=$1 context=$2 marker
   for marker in \
     "$FAKE_URL_PASSWORD" "$FAKE_QUOTED" "$FAKE_MULTI_A" "$FAKE_MULTI_B" \
-    "$FAKE_NON_INJECTED" "$FAKE_PROCESS" "$FAKE_INLINE"; do
+    "$FAKE_NON_INJECTED" "$FAKE_PROCESS" "$FAKE_INLINE" "$FAKE_PIN" \
+    "$FAKE_AMBIENT_KEY"; do
     assert_not_contains "$output" "$marker" "$context leaked a synthetic secret byte sequence"
   done
 }
@@ -42,7 +46,7 @@ assert_no_fake_secret() {
 test_names_and_has_never_print_values() {
   local names has expected
   names=$($TOOL names "$ENV_FILE" 2>&1) || fail "names failed"
-  expected=$(printf '%s\n' INDENTED_URL QUOTED_VALUE MULTI_VALUE URL_PASSWORD NON_INJECTED_VALUE SHORT_VALUE)
+  expected=$(printf '%s\n' INDENTED_URL QUOTED_VALUE MULTI_VALUE URL_PASSWORD NON_INJECTED_VALUE PIN SHORT_VALUE)
   [ "$names" = "$expected" ] || fail "names did not parse supported env syntax: $names"
   assert_no_fake_secret "$names" "names"
   assert_not_contains "$names" 'LOOKS_LIKE_A_NAME' \
@@ -58,17 +62,18 @@ test_names_and_has_never_print_values() {
 test_run_scrubs_all_file_values_and_preserves_status() {
   local output rc
   # shellcheck disable=SC2016 # The child expands only its deliberately injected environment.
-  output=$(SHORT_VALUE=ambient-value FM_FAKE_LITERAL="$FAKE_NON_INJECTED" $TOOL run "$ENV_FILE" \
-    --only INDENTED_URL,QUOTED_VALUE,MULTI_VALUE,URL_PASSWORD -- \
+  output=$(SHORT_VALUE=ambient-value $TOOL run "$ENV_FILE" \
+    --only INDENTED_URL,QUOTED_VALUE,MULTI_VALUE,URL_PASSWORD,PIN -- \
     sh -c '
       printf "%s\n" "$QUOTED_VALUE"
       printf "%s\n" "$MULTI_VALUE" >&2
       printf "postgres://another-user:%s@another.example/db\n" "$URL_PASSWORD"
       printf "%s\n" "$INDENTED_URL"
-      printf "%s\n" "$FM_FAKE_LITERAL"
+      printf "%s\n" "$1"
       printf "not-selected=%s\n" "${SHORT_VALUE-unset}"
+      printf "pin=%s\n" "$PIN"
       exit 37
-    ' 2>&1)
+    ' -- "$FAKE_NON_INJECTED" 2>&1)
   rc=$?
   expect_code 37 "$rc" "run must preserve the child exit status"
   assert_no_fake_secret "$output" "run"
@@ -78,7 +83,20 @@ test_run_scrubs_all_file_values_and_preserves_status() {
   assert_contains "$output" '<redacted:NON_INJECTED_VALUE>' \
     "run did not scrub a file value that was outside --only"
   assert_contains "$output" 'not-selected=unset' "run injected a file setting outside --only"
+  assert_contains "$output" '<redacted:PIN>' "run did not scrub a short secret-bearing value"
   pass "fm-secrets: run scrubs stdout and stderr and preserves child status"
+}
+
+test_run_excludes_and_scrubs_ambient_secret_settings() {
+  local output
+  # shellcheck disable=SC2016 # The child expands only its deliberately injected environment.
+  output=$(TYPESAFE_API_KEY="$FAKE_AMBIENT_KEY" $TOOL run "$ENV_FILE" --only PIN -- \
+    sh -c 'printf "ambient=%s\n" "${TYPESAFE_API_KEY-unset}"; printf "pin=%s\n" "$PIN"' 2>&1) \
+    || fail "run failed while excluding an ambient secret setting"
+  assert_no_fake_secret "$output" "run ambient settings"
+  assert_contains "$output" 'ambient=unset' "run inherited an ambient secret setting"
+  assert_contains "$output" '<redacted:PIN>' "run did not scrub the requested short PIN"
+  pass "fm-secrets: run excludes ambient secrets and scrubs short secret names"
 }
 
 test_service_has_reads_process_environment_without_values() {
@@ -138,12 +156,14 @@ test_help_owns_the_scrub_limit() {
   help=$($TOOL --help) || fail "--help failed"
   assert_contains "$help" 'at least 6 bytes long' "help omitted the scrub threshold"
   assert_contains "$help" 'shorter than 6 bytes' "help omitted the short-value limit"
+  assert_contains "$help" 'URL userinfo passwords' "help omitted the URL password exception"
   assert_contains "$help" 'exit status is preserved' "help omitted child status behavior"
   pass "fm-secrets: help documents the scrub boundary"
 }
 
 test_names_and_has_never_print_values
 test_run_scrubs_all_file_values_and_preserves_status
+test_run_excludes_and_scrubs_ambient_secret_settings
 test_service_has_reads_process_environment_without_values
 test_service_has_falls_back_to_unit_settings
 test_help_owns_the_scrub_limit

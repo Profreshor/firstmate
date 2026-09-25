@@ -6,10 +6,11 @@
 #       Print only assignment names, one per line.
 #   has <env-file> <NAME>...
 #   has --service <systemd-unit> <NAME>...
-#       Print NAME=yes or NAME=no without printing any setting value.
+#       Print NAME=yes, NAME=no, or NAME=unknown without any setting value.
 #       A running service's main-process environment is authoritative when it
 #       is readable; otherwise the unit's EnvironmentFile= and Environment=
-#       declarations are inspected.
+#       declarations are inspected. Manager values named by PassEnvironment=
+#       are reported as unknown rather than read.
 #   run <env-file> --only NAME[,NAME...] -- <command...>
 #       Inherit only PATH, HOME, USER, LOGNAME, LANG, LC_*, TERM, TMPDIR, SHELL,
 #       and PWD, add only the selected names, run the command, and scrub its

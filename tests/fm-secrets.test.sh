@@ -193,6 +193,7 @@ test_service_has_falls_back_to_unit_settings() {
     '  *--property=EnvironmentFiles*) printf "%s (ignore_errors=no)\n" "${FM_TEST_UNIT_ENV:?}" ;;' \
     '  *--property=Environment*) printf "INLINE_SETTING=%s UNSET_INLINE_SETTING=value EXACT_INLINE_MATCH=actual EXACT_INLINE_KEEP=actual OVERRIDDEN_SETTING=keep\n" "${FM_TEST_INLINE_VALUE:?}" ;;' \
     '  *--property=UnsetEnvironment*) printf "UNSET_FILE_SETTING UNSET_INLINE_SETTING EXACT_FILE_MATCH=actual EXACT_FILE_KEEP=other EXACT_INLINE_MATCH=actual EXACT_INLINE_KEEP=other OVERRIDDEN_SETTING=remove \"ESCAPED_UNSET=foo bar\"\n" ;;' \
+    '  *--property=PassEnvironment*) printf "\n" ;;' \
     '  *) exit 64 ;;' \
     'esac' > "$FAKEBIN/systemctl"
   chmod +x "$FAKEBIN/systemctl"
@@ -216,6 +217,7 @@ test_service_has_rejects_invalid_environment_file_characters() {
     '  *--property=EnvironmentFiles*) printf "%s (ignore_errors=no)\n" "${FM_TEST_UNIT_ENV:?}" ;;' \
     '  *--property=Environment*) printf "\n" ;;' \
     '  *--property=UnsetEnvironment*) printf "\n" ;;' \
+    '  *--property=PassEnvironment*) printf "\n" ;;' \
     '  *) exit 64 ;;' \
     'esac' > "$FAKEBIN/systemctl"
   chmod +x "$FAKEBIN/systemctl"
@@ -237,6 +239,28 @@ test_service_has_rejects_invalid_environment_file_characters() {
   pass "fm-secrets: service has rejects invalid EnvironmentFile characters"
 }
 
+test_service_has_marks_unread_passed_environment_unknown() {
+  local output expected
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'case "$*" in' \
+    '  *--property=MainPID*) printf "0\n" ;;' \
+    '  *--property=EnvironmentFiles*) printf "\n" ;;' \
+    '  *--property=Environment*) printf "\n" ;;' \
+    '  *--property=UnsetEnvironment*) printf "\n" ;;' \
+    '  *--property=PassEnvironment*) printf "TYPESAFE_API_KEY\n" ;;' \
+    '  *) exit 64 ;;' \
+    'esac' > "$FAKEBIN/systemctl"
+  chmod +x "$FAKEBIN/systemctl"
+
+  output=$(PATH="$FAKEBIN:$PATH" $TOOL has --service fake-stopped.service \
+    TYPESAFE_API_KEY ABSENT_SETTING 2>&1) \
+    || fail "service has failed with PassEnvironment"
+  expected=$(printf '%s\n' 'TYPESAFE_API_KEY=unknown' 'ABSENT_SETTING=no')
+  [ "$output" = "$expected" ] || fail "service has misreported passed environment: $output"
+  pass "fm-secrets: service has marks unread passed environment unknown"
+}
+
 test_help_owns_the_scrub_limit() {
   local help
   help=$($TOOL --help) || fail "--help failed"
@@ -244,6 +268,7 @@ test_help_owns_the_scrub_limit() {
   assert_contains "$help" 'shorter than 6 bytes' "help omitted the short-value limit"
   assert_contains "$help" 'URL userinfo passwords' "help omitted the URL password exception"
   assert_contains "$help" 'exit status is preserved' "help omitted child status behavior"
+  assert_contains "$help" 'NAME=unknown' "help omitted indeterminate service presence"
   pass "fm-secrets: help documents the scrub boundary"
 }
 
@@ -257,4 +282,5 @@ test_run_scrubs_url_decoded_passwords
 test_service_has_reads_process_environment_without_values
 test_service_has_falls_back_to_unit_settings
 test_service_has_rejects_invalid_environment_file_characters
+test_service_has_marks_unread_passed_environment_unknown
 test_help_owns_the_scrub_limit

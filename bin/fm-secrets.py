@@ -368,12 +368,20 @@ def environment_file_specs(raw: str) -> list[tuple[str, bool]]:
     return specs
 
 
-def service_names(unit: str) -> set[str]:
+def pass_environment_names(raw: str) -> set[str]:
+    try:
+        words = shlex.split(raw, posix=True)
+    except ValueError as exc:
+        raise SecretToolError("systemd PassEnvironment= data could not be parsed safely") from exc
+    return {word for word in words if NAME_RE.fullmatch(word)}
+
+
+def service_presence(unit: str, requested: Sequence[str]) -> dict[str, str]:
     if not unit or unit.startswith("-"):
         raise SecretToolError("a valid systemd unit name is required")
     running = process_environment_names(systemctl_property(unit, "MainPID"))
     if running is not None:
-        return running
+        return {name: "yes" if name in running else "no" for name in requested}
 
     assignments = environment_declaration_assignments(
         systemctl_property(unit, "Environment")
@@ -392,13 +400,25 @@ def service_names(unit: str) -> set[str]:
         systemctl_property(unit, "UnsetEnvironment")
     )
     values = {assignment.name: assignment.value for assignment in assignments}
-    return {
+    present = {
         name
         for name, value in values.items()
         if not any(
             name == unset_name and (unset_value is None or value == unset_value)
             for unset_name, unset_value in unsets
         )
+    }
+    unconditionally_unset = {name for name, value in unsets if value is None}
+    unknown = pass_environment_names(systemctl_property(unit, "PassEnvironment"))
+    return {
+        name: (
+            "yes"
+            if name in present
+            else "unknown"
+            if name in unknown and name not in values and name not in unconditionally_unset
+            else "no"
+        )
+        for name in requested
     }
 
 
@@ -416,18 +436,20 @@ def command_has(args: Sequence[str]) -> int:
             raise SecretToolError(
                 "usage: fm-secrets.sh has --service <systemd-unit> <NAME>..."
             )
-        present = service_names(args[1])
         requested = list(args[2:])
+        validate_names(requested)
+        presence = service_presence(args[1], requested)
     else:
         if len(args) < 2:
             raise SecretToolError(
                 "usage: fm-secrets.sh has <env-file> <NAME>..."
             )
-        present = set(unique_names(parse_env_file(args[0])))
         requested = list(args[1:])
-    validate_names(requested)
+        validate_names(requested)
+        present = set(unique_names(parse_env_file(args[0])))
+        presence = {name: "yes" if name in present else "no" for name in requested}
     for name in requested:
-        print(f"{name}={'yes' if name in present else 'no'}")
+        print(f"{name}={presence[name]}")
     return 0
 
 

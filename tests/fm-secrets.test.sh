@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+# Behavior tests for the settings inspection and scrub boundary.
+set -u
+
+# shellcheck source=tests/lib.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
+TMP_ROOT=$(fm_test_tmproot fm-secrets)
+TOOL="$ROOT/bin/fm-secrets.sh"
+ENV_FILE="$TMP_ROOT/settings.env"
+FAKEBIN="$TMP_ROOT/fakebin"
+mkdir -p "$FAKEBIN"
+
+FAKE_URL_PASSWORD=fake_url_password_20260924
+FAKE_QUOTED=fake_quoted_value_20260924
+FAKE_MULTI_A=fake_multiline_first_20260924
+FAKE_MULTI_B=fake_multiline_second_20260924
+FAKE_NON_INJECTED=fake_non_injected_value_20260924
+FAKE_PROCESS=fake_process_value_20260924
+FAKE_INLINE=fake_inline_value_20260924
+
+printf '%s\n' \
+  '# synthetic settings - never real credentials' \
+  "   export INDENTED_URL = \"postgres://fake_user:${FAKE_URL_PASSWORD}@fake.example/db\" # trailing comment" \
+  "QUOTED_VALUE='${FAKE_QUOTED}'" \
+  "MULTI_VALUE=\"${FAKE_MULTI_A}" \
+  'LOOKS_LIKE_A_NAME=still_part_of_the_value' \
+  "${FAKE_MULTI_B}\"" \
+  "URL_PASSWORD=${FAKE_URL_PASSWORD}" \
+  "NON_INJECTED_VALUE=${FAKE_NON_INJECTED}" \
+  'SHORT_VALUE=abc' > "$ENV_FILE"
+
+assert_no_fake_secret() {
+  local output=$1 context=$2 marker
+  for marker in \
+    "$FAKE_URL_PASSWORD" "$FAKE_QUOTED" "$FAKE_MULTI_A" "$FAKE_MULTI_B" \
+    "$FAKE_NON_INJECTED" "$FAKE_PROCESS" "$FAKE_INLINE"; do
+    assert_not_contains "$output" "$marker" "$context leaked a synthetic secret byte sequence"
+  done
+}
+
+test_names_and_has_never_print_values() {
+  local names has expected
+  names=$($TOOL names "$ENV_FILE" 2>&1) || fail "names failed"
+  expected=$(printf '%s\n' INDENTED_URL QUOTED_VALUE MULTI_VALUE URL_PASSWORD NON_INJECTED_VALUE SHORT_VALUE)
+  [ "$names" = "$expected" ] || fail "names did not parse supported env syntax: $names"
+  assert_no_fake_secret "$names" "names"
+  assert_not_contains "$names" 'LOOKS_LIKE_A_NAME' \
+    "names treated a quoted multiline value as a new assignment"
+
+  has=$($TOOL has "$ENV_FILE" INDENTED_URL MULTI_VALUE ABSENT_SETTING 2>&1) || fail "has failed"
+  expected=$(printf '%s\n' 'INDENTED_URL=yes' 'MULTI_VALUE=yes' 'ABSENT_SETTING=no')
+  [ "$has" = "$expected" ] || fail "has returned unexpected booleans: $has"
+  assert_no_fake_secret "$has" "has"
+  pass "fm-secrets: names and has expose names and booleans only"
+}
+
+test_run_scrubs_all_file_values_and_preserves_status() {
+  local output rc
+  # shellcheck disable=SC2016 # The child expands only its deliberately injected environment.
+  output=$(SHORT_VALUE=ambient-value FM_FAKE_LITERAL="$FAKE_NON_INJECTED" $TOOL run "$ENV_FILE" \
+    --only INDENTED_URL,QUOTED_VALUE,MULTI_VALUE,URL_PASSWORD -- \
+    sh -c '
+      printf "%s\n" "$QUOTED_VALUE"
+      printf "%s\n" "$MULTI_VALUE" >&2
+      printf "postgres://another-user:%s@another.example/db\n" "$URL_PASSWORD"
+      printf "%s\n" "$INDENTED_URL"
+      printf "%s\n" "$FM_FAKE_LITERAL"
+      printf "not-selected=%s\n" "${SHORT_VALUE-unset}"
+      exit 37
+    ' 2>&1)
+  rc=$?
+  expect_code 37 "$rc" "run must preserve the child exit status"
+  assert_no_fake_secret "$output" "run"
+  assert_contains "$output" '<redacted:QUOTED_VALUE>' "run did not scrub an injected quoted value"
+  assert_contains "$output" '<redacted:MULTI_VALUE>' "run did not scrub an injected multiline value"
+  assert_contains "$output" '<redacted:URL_PASSWORD>' "run did not scrub a password in URL userinfo"
+  assert_contains "$output" '<redacted:NON_INJECTED_VALUE>' \
+    "run did not scrub a file value that was outside --only"
+  assert_contains "$output" 'not-selected=unset' "run injected a file setting outside --only"
+  pass "fm-secrets: run scrubs stdout and stderr and preserves child status"
+}
+
+test_service_has_reads_process_environment_without_values() {
+  local service_pid output expected
+  env FM_FAKE_PROCESS_SETTING="$FAKE_PROCESS" sleep 30 &
+  service_pid=$!
+  trap 'kill "$service_pid" 2>/dev/null || true; wait "$service_pid" 2>/dev/null || true; fm_test_cleanup' EXIT
+
+  # shellcheck disable=SC2016 # The generated stub expands this at execution time.
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'case "$*" in' \
+    '  *--property=MainPID*) printf "%s\n" "${FM_TEST_SERVICE_PID:?}" ;;' \
+    '  *) exit 64 ;;' \
+    'esac' > "$FAKEBIN/systemctl"
+  chmod +x "$FAKEBIN/systemctl"
+
+  output=$(PATH="$FAKEBIN:$PATH" FM_TEST_SERVICE_PID="$service_pid" \
+    $TOOL has --service fake-running.service FM_FAKE_PROCESS_SETTING ABSENT_SETTING 2>&1) \
+    || fail "service has failed for a running process"
+  expected=$(printf '%s\n' 'FM_FAKE_PROCESS_SETTING=yes' 'ABSENT_SETTING=no')
+  [ "$output" = "$expected" ] || fail "service has returned unexpected process booleans: $output"
+  assert_no_fake_secret "$output" "service process has"
+
+  kill "$service_pid" 2>/dev/null || true
+  wait "$service_pid" 2>/dev/null || true
+  trap fm_test_cleanup EXIT
+  pass "fm-secrets: service has inspects a running process without exposing values"
+}
+
+test_service_has_falls_back_to_unit_settings() {
+  local unit_env output expected
+  unit_env="$TMP_ROOT/unit.env"
+  printf '%s\n' "UNIT_FILE_SETTING=${FAKE_QUOTED}" > "$unit_env"
+  # shellcheck disable=SC2016 # The generated stub expands these at execution time.
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'case "$*" in' \
+    '  *--property=MainPID*) printf "0\n" ;;' \
+    '  *--property=EnvironmentFiles*) printf "%s (ignore_errors=no)\n" "${FM_TEST_UNIT_ENV:?}" ;;' \
+    '  *--property=Environment*) printf "INLINE_SETTING=%s\n" "${FM_TEST_INLINE_VALUE:?}" ;;' \
+    '  *) exit 64 ;;' \
+    'esac' > "$FAKEBIN/systemctl"
+  chmod +x "$FAKEBIN/systemctl"
+
+  output=$(PATH="$FAKEBIN:$PATH" FM_TEST_UNIT_ENV="$unit_env" FM_TEST_INLINE_VALUE="$FAKE_INLINE" \
+    $TOOL has --service fake-stopped.service UNIT_FILE_SETTING INLINE_SETTING ABSENT_SETTING 2>&1) \
+    || fail "service has failed for unit declarations"
+  expected=$(printf '%s\n' 'UNIT_FILE_SETTING=yes' 'INLINE_SETTING=yes' 'ABSENT_SETTING=no')
+  [ "$output" = "$expected" ] || fail "service has returned unexpected unit booleans: $output"
+  assert_no_fake_secret "$output" "service declaration has"
+  pass "fm-secrets: service has safely reads EnvironmentFile and Environment declarations"
+}
+
+test_help_owns_the_scrub_limit() {
+  local help
+  help=$($TOOL --help) || fail "--help failed"
+  assert_contains "$help" 'at least 6 bytes long' "help omitted the scrub threshold"
+  assert_contains "$help" 'shorter than 6 bytes' "help omitted the short-value limit"
+  assert_contains "$help" 'exit status is preserved' "help omitted child status behavior"
+  pass "fm-secrets: help documents the scrub boundary"
+}
+
+test_names_and_has_never_print_values
+test_run_scrubs_all_file_values_and_preserves_status
+test_service_has_reads_process_environment_without_values
+test_service_has_falls_back_to_unit_settings
+test_help_owns_the_scrub_limit

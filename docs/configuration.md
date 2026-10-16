@@ -440,6 +440,7 @@ When present, every worker launch, relaunch, and local secondmate launch runs in
 An out-of-memory kill removes only the offending process and the worker keeps running (`OOMPolicy=continue`).
 When absent, launches are unchanged.
 A malformed value, or a host without `systemd-run`, refuses the launch.
+The cap requires systemd 243 or later.
 A fleet-wide ceiling is a property of the slice, not of this file: create `~/.config/systemd/user/fm-crew.slice` with `[Slice]` `MemoryHigh=`, `MemoryMax=`, and `MemorySwapMax=` sized for the host, then run `systemctl --user daemon-reload`.
 The cap requires the user manager to delegate the memory controller, which `cat /sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/cgroup.controllers` confirms by listing `memory`.
 [`bin/fm-spawn.sh`](../bin/fm-spawn.sh) owns parsing and the launch wrapper.

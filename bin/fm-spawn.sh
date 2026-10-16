@@ -571,7 +571,7 @@ fi
 # config/crew-memory-max opts every launch into a memory-capped systemd user
 # scope under fm-crew.slice, so the kernel OOM killer reclaims a runaway worker
 # instead of the whole host. Read once per launch; a malformed value or a host
-# without systemd-run refuses rather than launching uncapped.
+# without systemd-run or systemd 243 refuses rather than launching uncapped.
 if ! CREW_MEMORY_MAX_PRESENT=$(fm_config_source_present "$CONFIG/crew-memory-max"); then
   exit 1
 fi
@@ -588,6 +588,10 @@ if [ "$CREW_MEMORY_MAX_PRESENT" = 1 ]; then
   fi
   if ! command -v systemd-run >/dev/null 2>&1; then
     echo "error: config/crew-memory-max is set but systemd-run is not available; remove the file or launch on a systemd host" >&2
+    exit 1
+  fi
+  if ! SYSTEMD_RUN_VERSION=$(systemd-run --version 2>&1) || ! [[ "$SYSTEMD_RUN_VERSION" =~ ^systemd[[:space:]]+([0-9]+) ]] || [ "${BASH_REMATCH[1]}" -lt 243 ]; then
+    echo "error: config/crew-memory-max requires systemd-run from systemd 243 or later" >&2
     exit 1
   fi
 fi

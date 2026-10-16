@@ -40,6 +40,10 @@ run_spawn() {
 install_probes() {
   cat > "$FAKEBIN_DIR/systemd-run" <<'SH'
 #!/bin/sh
+if [ "$1" = --version ]; then
+  printf 'systemd %s\n' "${SYSTEMD_RUN_VERSION:-243}"
+  exit 0
+fi
 printf '%s\n' "$@" > "$SYSTEMD_RUN_ARGS"
 while [ "$#" -gt 0 ] && [ "$1" != -- ]; do shift; done
 shift
@@ -102,6 +106,20 @@ test_malformed_value_refuses() {
   pass "a malformed config/crew-memory-max refuses before launching"
 }
 
+test_older_systemd_refuses() {
+  local out status
+  make_case older-systemd older-systemd-a1
+  install_probes
+  printf '6G\n' > "$HOME_DIR/config/crew-memory-max"
+  out=$(SYSTEMD_RUN_VERSION=242 PATH="$FAKEBIN_DIR:$PATH" run_spawn older-systemd-a1 "$PROJ_DIR" --mode no-mistakes --yolo off 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "systemd 242 must refuse the capped spawn"
+  assert_contains "$out" "systemd 243 or later" "the refusal must name the required systemd version"
+  [ ! -s "$LAUNCH_LOG" ] || fail "an unsupported systemd version must not deliver a launch"
+  pass "config/crew-memory-max refuses before launching on systemd 242"
+}
+
 test_capped_launch_runs_inside_the_scope
 test_absent_file_launches_unwrapped
 test_malformed_value_refuses
+test_older_systemd_refuses

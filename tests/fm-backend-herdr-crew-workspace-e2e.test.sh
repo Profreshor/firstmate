@@ -229,7 +229,7 @@ HOME_A=$HOME_DIR
 OTHER_HOME="$TMP_ROOT/other-home"
 mkdir -p "$OTHER_HOME/state"
 HOME_DIR=$OTHER_HOME
-read -r OTHER_WS _ OTHER_PANE < <(place fm-foreign) || fail 'could not place the foreign-home crew task'
+read -r OTHER_WS _ < <(place fm-foreign) || fail 'could not place the foreign-home crew task'
 [ -n "$OTHER_WS" ] && [ "$OTHER_WS" != "$WS" ] || fail 'the foreign home should create a distinct crew workspace'
 HOME_DIR=$HOME_A
 LIVE_A=$(adapter fm_backend_herdr_list_live "$HERDR_LAB_SESSION")

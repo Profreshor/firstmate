@@ -136,7 +136,7 @@
 # share a machine. This script owns <n>: a lane whose <n> disagrees with the
 # configured shard count is refused, so a CI matrix cannot silently drop a shard.
 # --check-coverage also reports serial_max_ms (largest packed hint sum, including
-# default weights) and serial_budget_ms (the 20-minute packing target), refusing
+# default weights) and serial_budget_ms (the roughly 25-minute packing target), refusing
 # a split above that target. Neither figure is an execution timeout or proof of
 # observed headroom: refresh growing files from CI measurements.
 # --changed is conservative: it over-selects related families rather than
@@ -205,10 +205,11 @@ PORTABLE_SERIAL_SHARDS=9
 # Rounded above the current CI mean, including the capability-skipped scripts.
 PORTABLE_SERIAL_DEFAULT_WEIGHT_MS=45000
 
-# Packing target, not an execution timeout: leave at least ten minutes of the
-# normal CI tier for setup and runtime variance. --check-coverage refuses a
-# modeled serial shard above this target; refresh hints or rebalance instead.
-PORTABLE_SERIAL_MAX_WEIGHT_MS=1200000
+# Packing target, not an execution timeout: leave at least five minutes of the
+# normal CI tier for setup and runtime variance. It is sized to the isolated
+# host suite, the indivisible floor. --check-coverage refuses a modeled serial
+# shard above this target; refresh hints or rebalance instead.
+PORTABLE_SERIAL_MAX_WEIGHT_MS=1510000
 
 # Largest share of the serial lane allowed to run on the default weight above.
 # Hints are what keep the shards balanced, so once too much of the lane is
@@ -861,7 +862,7 @@ tests/fm-subagent-pretool-check.test.sh 998
 tests/fm-supervision-events.test.sh 673
 tests/fm-supervision-host-attended-live-e2e.test.sh 49
 tests/fm-supervision-host-live-e2e.test.sh 75
-tests/fm-supervision-host.test.sh 789123
+tests/fm-supervision-host.test.sh 1501963
 tests/fm-tangle-guard.test.sh 8501
 tests/fm-task-delivery.test.sh 32789
 tests/fm-task-inbox.test.sh 31965

@@ -482,8 +482,6 @@ def scrub_output(data: bytes, scrubbers: Sequence[tuple[bytes, bytes]]) -> bytes
 def scrub_stream_boundary(
     stdout: bytes, stderr: bytes, scrubbers: Sequence[tuple[bytes, bytes]]
 ) -> tuple[bytes, bytes]:
-    stdout = scrub_output(stdout, scrubbers)
-    stderr = scrub_output(stderr, scrubbers)
     for value, replacement in scrubbers:
         for split in range(1, len(value)):
             if stdout.endswith(value[:split]) and stderr.startswith(value[split:]):
@@ -494,7 +492,7 @@ def scrub_stream_boundary(
                 stderr = stderr[:-split] + replacement
                 stdout = stdout[len(value) - split :]
                 break
-    return stdout, stderr
+    return scrub_output(stdout, scrubbers), scrub_output(stderr, scrubbers)
 
 
 def command_run(args: Sequence[str]) -> int:

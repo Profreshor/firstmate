@@ -136,6 +136,16 @@ test_run_scrubs_stream_boundary() {
   output=$(cat "$TMP_ROOT/boundary.out" "$TMP_ROOT/boundary.err")
   assert_not_contains "$output" 'foo' "run leaked a stderr-prefix fragment"
   assert_not_contains "$output" 'bar' "run leaked a stdout-suffix fragment"
+  printf '%s\n' 'TOKEN=foobar' 'OTHER_TOKEN=foo' > "$env_file"
+  output=$($TOOL run "$env_file" --only TOKEN,OTHER_TOKEN -- \
+    sh -c 'printf bar; printf foo >&2' 2>&1) \
+    || fail "run failed while scrubbing an overlapping stderr-prefix boundary"
+  assert_not_contains "$output" 'bar' "run leaked a suffix when another secret matched the prefix"
+  $TOOL run "$env_file" --only TOKEN,OTHER_TOKEN -- \
+    sh -c 'printf foo; printf bar >&2' >"$TMP_ROOT/boundary.out" 2>"$TMP_ROOT/boundary.err" \
+    || fail "run failed while scrubbing an overlapping stdout-prefix boundary"
+  output=$(cat "$TMP_ROOT/boundary.out" "$TMP_ROOT/boundary.err")
+  assert_not_contains "$output" 'bar' "run leaked a stderr suffix when another secret matched the prefix"
   pass "fm-secrets: run scrubs stream-boundary values"
 }
 

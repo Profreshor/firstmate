@@ -1,0 +1,23 @@
+fm-secrets.sh live stream-scrubbing transcript (all values are synthetic)
+
+[stderr-prefix stdout]
+<redacted:TOKEN>
+[stderr-prefix stderr]
+<redacted:TOKEN>
+[overlap-stdout-prefix stdout]
+<redacted:TOKEN>
+[overlap-stdout-prefix stderr]
+<redacted:TOKEN>
+[overlap-stderr-prefix stdout]
+<redacted:TOKEN>
+[overlap-stderr-prefix stderr]
+<redacted:TOKEN>
+[raw-overlap stdout]
+<redacted:TOKEN>
+[raw-overlap stderr]
+<redacted:TOKEN>
+[both-orders stdout]
+<redacted:TOKEN>
+[both-orders stderr]
+<redacted:TOKEN>
+Assertions: no synthetic secret, suffix, or cross-stream reconstruction remained in either captured stream.

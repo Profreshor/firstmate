@@ -70,6 +70,7 @@ test_capped_launch_runs_inside_the_scope() {
   assert_equals harness-started "$seen" "the harness must start inside the scope"
   assert_contains "$(cat "$args")" "--slice=fm-crew.slice" "the scope must sit under fm-crew.slice"
   assert_contains "$(cat "$args")" "MemoryMax=6G" "the scope must carry the configured cap"
+  assert_contains "$(cat "$args")" "OOMPolicy=continue" "an OOM kill must remove only the offending process"
   assert_contains "$(cat "$args")" "--user" "the scope must belong to the user manager"
   pass "a configured cap launches the harness inside a capped fm-crew.slice scope"
 }

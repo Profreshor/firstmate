@@ -437,6 +437,7 @@ A remote secondmate is launched on its host from its own home's configuration, s
 
 The optional local, gitignored `config/crew-memory-max` holds one systemd size, such as `6G`.
 When present, every worker launch, relaunch, and local secondmate launch runs inside its own transient systemd user scope under `fm-crew.slice` with that `MemoryMax`, so the agent and every process it starts share one cap and an out-of-memory kill stays inside that worker instead of hitting the whole host.
+An out-of-memory kill removes only the offending process and the worker keeps running (`OOMPolicy=continue`).
 When absent, launches are unchanged.
 A malformed value, or a host without `systemd-run`, refuses the launch.
 A fleet-wide ceiling is a property of the slice, not of this file: create `~/.config/systemd/user/fm-crew.slice` with `[Slice]` `MemoryHigh=`, `MemoryMax=`, and `MemorySwapMax=` sized for the host, then run `systemctl --user daemon-reload`.

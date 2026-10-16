@@ -318,7 +318,8 @@
 #   relaunch - then runs inside its own transient user scope
 #   fm-crew-<id>-<spawn-token>.scope under fm-crew.slice with that MemoryMax, so
 #   the agent and every process it starts share one cap and the OOM killer
-#   stays inside it. A fleet-wide ceiling belongs on fm-crew.slice itself (see
+#   stays inside it; an out-of-memory kill removes only the offending process
+#   (OOMPolicy=continue) and the worker keeps running. A fleet-wide ceiling belongs on fm-crew.slice itself (see
 #   docs/configuration.md). A malformed value, or a host without systemd-run,
 #   refuses the spawn before any endpoint, worktree, or record exists.
 # Worker account pin (config/claude-account, config/pi-account):
@@ -5088,7 +5089,7 @@ fi
 # environment because it needs the pane's user-bus variables, and the launch is
 # re-wrapped in /bin/sh because it may begin with shell assignments.
 if [ -n "$CREW_MEMORY_MAX" ]; then
-  LAUNCH="systemd-run --user --scope --quiet --collect --slice=fm-crew.slice --unit=$(shell_quote "fm-crew-$ID-$SPAWN_GEN") -p MemoryMax=$CREW_MEMORY_MAX -- /bin/sh -c $(shell_quote "$LAUNCH")"
+  LAUNCH="systemd-run --user --scope --quiet --collect --slice=fm-crew.slice --unit=$(shell_quote "fm-crew-$ID-$SPAWN_GEN") -p MemoryMax=$CREW_MEMORY_MAX -p OOMPolicy=continue -- /bin/sh -c $(shell_quote "$LAUNCH")"
 fi
 # Implement the launch-delivery contract in this script's header. The full
 # home-identity hash isolates equal task ids across homes, and the spawn token in

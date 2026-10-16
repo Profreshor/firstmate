@@ -1,0 +1,13 @@
+tests/fm-watch-triage.test.sh
+tests/fm-startup-memory-budget.test.sh
+tests/fm-ci-workflow.test.sh
+tests/fm-remote-herdr-guard.test.sh
+tests/fm-tasks-axi.test.sh
+tests/fm-documentation-audiences.test.sh
+tests/fm-check-unregister.test.sh
+tests/fm-no-mistakes-required.test.sh
+tests/fm-send-inbox-doorbell-live-e2e.test.sh
+tests/fm-pi-primary-live-e2e.test.sh
+tests/fm-bearings-board-lavish-live-e2e.test.sh
+tests/fm-devin-signals-live-e2e.test.sh
+tests/fm-grok-continuity-live-e2e.test.sh

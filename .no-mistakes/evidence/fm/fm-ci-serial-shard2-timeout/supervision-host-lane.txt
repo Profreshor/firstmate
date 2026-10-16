@@ -1,0 +1,2 @@
+portable-serial-1of9
+tests/fm-supervision-host.test.sh

@@ -1,0 +1,8 @@
+session=fm-lab-crew-scope-145334-16251
+workspace_a=w1 pane_a=w1:p1
+workspace_b=w2 pane_b=w2:p1
+crew_labels=firstmate-crew,firstmate-crew
+home_a_list_live:
+fm-lab-crew-scope-145334-16251:w1:p1	fm-home-a
+home_b_list_live:
+fm-lab-crew-scope-145334-16251:w2:p1	fm-home-b

@@ -319,8 +319,10 @@
 #   fm-crew-<id>-<spawn-token>.scope under fm-crew.slice with that MemoryMax, so
 #   the agent and every process it starts share one cap and the OOM killer
 #   stays inside it; an out-of-memory kill removes only the offending process
-#   (OOMPolicy=continue) and the worker keeps running. A fleet-wide ceiling belongs on fm-crew.slice itself (see
-#   docs/configuration.md). A malformed value, or a host without systemd-run,
+#   (OOMPolicy=continue) and the worker keeps running.
+#   A fleet-wide ceiling belongs on fm-crew.slice itself (see
+#   docs/configuration.md).
+#   A malformed value, a host without systemd-run, or systemd before 243
 #   refuses the spawn before any endpoint, worktree, or record exists.
 # Worker account pin (config/claude-account, config/pi-account):
 #   Opt-in. With no file, a Claude or Pi launch is unchanged: Claude still

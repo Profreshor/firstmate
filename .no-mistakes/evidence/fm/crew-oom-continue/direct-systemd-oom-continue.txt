@@ -1,0 +1,4 @@
+parent-started
+child-exit=0
+parent-survived
+systemd-run-exit=0

@@ -1,0 +1,4 @@
+worker:
+parent-started pid=2479462
+scope:
+pane:

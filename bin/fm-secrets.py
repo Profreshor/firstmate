@@ -469,28 +469,61 @@ def known_scrubbers(
     return sorted(scrubbers.items(), key=lambda item: len(item[0]), reverse=True)
 
 
-def scrub_output(data: bytes, scrubbers: Sequence[tuple[bytes, bytes]]) -> bytes:
-    for value, replacement in scrubbers:
-        data = data.replace(value, replacement)
-
+def scrub_url_passwords(data: bytes) -> bytes:
     def redact_url_password(match: re.Match[bytes]) -> bytes:
         return match.group(1) + b"<redacted:URL_PASSWORD>" + match.group(3)
 
     return URL_PASSWORD_RE.sub(redact_url_password, data)
 
 
+def redact_ranges(
+    data: bytes, ranges: Sequence[tuple[int, int, int, bytes]]
+) -> bytes:
+    merged: list[tuple[int, int, int, bytes]] = []
+    for start, end, priority, replacement in sorted(ranges):
+        if merged and start <= merged[-1][1]:
+            previous_start, previous_end, previous_priority, previous_replacement = merged[-1]
+            if priority < previous_priority:
+                previous_priority, previous_replacement = priority, replacement
+            merged[-1] = (
+                previous_start,
+                max(previous_end, end),
+                previous_priority,
+                previous_replacement,
+            )
+        else:
+            merged.append((start, end, priority, replacement))
+    chunks: list[bytes] = []
+    last_end = 0
+    for start, end, _, replacement in merged:
+        chunks.extend((data[last_end:start], replacement))
+        last_end = end
+    chunks.append(data[last_end:])
+    return b"".join(chunks)
+
+
 def scrub_stream_boundary(
     stdout: bytes, stderr: bytes, scrubbers: Sequence[tuple[bytes, bytes]]
 ) -> tuple[bytes, bytes]:
-    stdout = scrub_output(stdout, scrubbers)
-    stderr = scrub_output(stderr, scrubbers)
-    for value, replacement in scrubbers:
+    stdout_ranges: list[tuple[int, int, int, bytes]] = []
+    stderr_ranges: list[tuple[int, int, int, bytes]] = []
+    for priority, (value, replacement) in enumerate(scrubbers):
+        for stream, ranges in ((stdout, stdout_ranges), (stderr, stderr_ranges)):
+            start = stream.find(value)
+            while start >= 0:
+                ranges.append((start, start + len(value), priority, replacement))
+                start = stream.find(value, start + 1)
         for split in range(1, len(value)):
             if stdout.endswith(value[:split]) and stderr.startswith(value[split:]):
-                stdout = stdout[:-split] + replacement
-                stderr = stderr[len(value) - split :]
-                break
-    return stdout, stderr
+                stdout_ranges.append((len(stdout) - split, len(stdout), priority, replacement))
+                stderr_ranges.append((0, len(value) - split, priority, replacement))
+            if stderr.endswith(value[:split]) and stdout.startswith(value[split:]):
+                stderr_ranges.append((len(stderr) - split, len(stderr), priority, replacement))
+                stdout_ranges.append((0, len(value) - split, priority, replacement))
+    return (
+        scrub_url_passwords(redact_ranges(stdout, stdout_ranges)),
+        scrub_url_passwords(redact_ranges(stderr, stderr_ranges)),
+    )
 
 
 def command_run(args: Sequence[str]) -> int:

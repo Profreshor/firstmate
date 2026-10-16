@@ -14,7 +14,8 @@
 #   run <env-file> --only NAME[,NAME...] -- <command...>
 #       Inherit only PATH, HOME, USER, LOGNAME, LANG, LC_*, TERM, TMPDIR, SHELL,
 #       and PWD, add only the selected names, run the command, and scrub its
-#       stdout and stderr. The command has no controlling terminal and reads stdin
+#       stdout and stderr, including protected values divided between the streams
+#       in either order. The command has no controlling terminal and reads stdin
 #       from /dev/null. Every nonempty selected value and every other file
 #       value at least 6 bytes long is replaced with <redacted:NAME>. Values of
 #       PASS, PWD, SECRET, TOKEN, KEY, PIN,

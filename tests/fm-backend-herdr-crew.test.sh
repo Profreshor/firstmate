@@ -279,6 +279,26 @@ test_list_live_reports_crew_panes() {
   pass "herdr crew: list-live reports crew panes by their task labels"
 }
 
+test_list_live_ignores_another_homes_crew_workspace() {
+  local home_a live_a live_b
+  crew_fixture two-homes
+  home_a=$HOME_DIR
+  place fm-a >/dev/null || fail "home A crew placement failed"
+  HOME_DIR="$DIR/home-b"
+  mkdir -p "$HOME_DIR/state" "$HOME_DIR/config"
+  place fm-b >/dev/null || fail "home B crew placement failed"
+  assert_equals 2 "$(herdr_fake workspace list | jq '[.result.workspaces[] | select(.label == "firstmate-crew")] | length')" \
+    "both homes should own a same-labeled crew workspace in the shared session"
+  live_b=$(adapter fm_backend_herdr_list_live crewlab)
+  HOME_DIR=$home_a
+  live_a=$(adapter fm_backend_herdr_list_live crewlab)
+  assert_contains "$live_a" $'\tfm-a' "home A should list its own crew pane"
+  assert_not_contains "$live_a" $'\tfm-b' "home A must not list home B's crew pane"
+  assert_contains "$live_b" $'\tfm-b' "home B should list its own crew pane"
+  assert_not_contains "$live_b" $'\tfm-a' "home B must not list home A's crew pane"
+  pass "herdr crew: list-live lists only this home's recorded crew workspaces"
+}
+
 test_missing_layout_api_still_places_with_a_warning() {
   local ws tab pane
   crew_fixture no-layout-api
@@ -305,4 +325,5 @@ test_last_pane_removes_the_workspace_and_next_spawn_recreates_it
 test_a_relabeled_recorded_workspace_is_never_adopted
 test_a_live_same_labeled_pane_refuses
 test_list_live_reports_crew_panes
+test_list_live_ignores_another_homes_crew_workspace
 test_missing_layout_api_still_places_with_a_warning

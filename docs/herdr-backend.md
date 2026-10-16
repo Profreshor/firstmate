@@ -156,7 +156,8 @@ Rename it manually before expecting new tasks or recovery to use it.
 
 ### Recovery and existing tasks
 
-Recovery and list-live still scan the first workspace matching the home label, because they address panes they already recorded rather than choosing where new work goes.
+Recovery and list-live scan the first workspace matching the home label for ordinary tabs, while crew-pane discovery scans only this home's recorded crew workspace ids.
+They address panes they already recorded rather than choosing where new work goes.
 The one recovery that does place new work is the control plane's reclaim of a destroyed endpoint.
 It mints a replacement tab through this section's ordinary placement rules while pinning the herdr session the task's record names ([`agent-control.md`](agent-control.md) "Reclaiming a task whose endpoint is gone").
 

@@ -130,6 +130,12 @@ test_run_scrubs_stream_boundary() {
   assert_not_contains "$output" 'foobar' "run leaked a value split across output streams"
   assert_contains "$output" '<redacted:TOKEN>' \
     "run did not scrub a value split across output streams"
+  $TOOL run "$env_file" --only TOKEN -- \
+    sh -c 'printf bar; printf foo >&2' >"$TMP_ROOT/boundary.out" 2>"$TMP_ROOT/boundary.err" \
+    || fail "run failed while scrubbing a stderr-prefix boundary"
+  output=$(cat "$TMP_ROOT/boundary.out" "$TMP_ROOT/boundary.err")
+  assert_not_contains "$output" 'foo' "run leaked a stderr-prefix fragment"
+  assert_not_contains "$output" 'bar' "run leaked a stdout-suffix fragment"
   pass "fm-secrets: run scrubs stream-boundary values"
 }
 

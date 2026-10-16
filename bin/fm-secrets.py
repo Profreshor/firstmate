@@ -490,6 +490,10 @@ def scrub_stream_boundary(
                 stdout = stdout[:-split] + replacement
                 stderr = stderr[len(value) - split :]
                 break
+            if stderr.endswith(value[:split]) and stdout.startswith(value[split:]):
+                stderr = stderr[:-split] + replacement
+                stdout = stdout[len(value) - split :]
+                break
     return stdout, stderr
 
 

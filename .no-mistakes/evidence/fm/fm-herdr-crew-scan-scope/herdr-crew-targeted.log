@@ -1,0 +1,15 @@
+ok - herdr crew: crew and crew:<1-16> select the crew layout, other values warn and fall back
+ok - herdr crew: the first task creates and records one labeled crew workspace without moving focus
+ok - herdr crew: six tasks fill an even 3x2 grid, top row left to right, then bottom row
+ok - herdr crew: a seventh task overflows into a second crew workspace, which goes with its last pane
+ok - herdr crew: a configured cap changes how many panes a crew workspace holds
+ok - herdr crew: kill closes one exact crew pane, keeps its siblings and focus, and rebalances
+ok - herdr crew: the next task refills a freed slot and restores the grid
+ok - herdr crew: the crew workspace goes with its last pane and the next spawn recreates it
+warning: herdr presentation ordering API support is unavailable or ambiguous; leaving worker in Herdr's current order
+ok - herdr crew: a recorded workspace whose label changed is never adopted
+ok - herdr crew: a live same-labeled crew pane refuses a duplicate placement
+ok - herdr crew: list-live reports crew panes by their task labels
+warning: herdr presentation ordering API support is unavailable or ambiguous; leaving worker in Herdr's current order
+ok - herdr crew: list-live lists only this home's recorded crew workspaces
+ok - herdr crew: without the layout API placement still works and only the rebalance is skipped

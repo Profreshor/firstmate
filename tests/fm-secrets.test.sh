@@ -154,6 +154,14 @@ test_run_scrubs_stream_boundary() {
   reverse_output=$(cat "$TMP_ROOT/boundary.err" "$TMP_ROOT/boundary.out")
   assert_not_contains "$output" 'abc' "run leaked a value across stdout then stderr"
   assert_not_contains "$reverse_output" 'abc' "run leaked a value across stderr then stdout"
+  printf '%s\n' 'TOKEN=aaaa' > "$env_file"
+  $TOOL run "$env_file" --only TOKEN -- \
+    sh -c 'printf aaa; printf aaa >&2' >"$TMP_ROOT/boundary.out" 2>"$TMP_ROOT/boundary.err" \
+    || fail "run failed while preserving overlapping boundary markers"
+  output=$(cat "$TMP_ROOT/boundary.out")
+  reverse_output=$(cat "$TMP_ROOT/boundary.err")
+  assert_contains "$output" '<redacted:TOKEN>' "run corrupted a stdout boundary marker"
+  assert_contains "$reverse_output" '<redacted:TOKEN>' "run corrupted a stderr boundary marker"
   pass "fm-secrets: run scrubs stream-boundary values"
 }
 

@@ -479,6 +479,14 @@ def scrub_output(data: bytes, scrubbers: Sequence[tuple[bytes, bytes]]) -> bytes
     return URL_PASSWORD_RE.sub(redact_url_password, data)
 
 
+def apply_boundary_edits(
+    data: bytes, replacement: bytes, replace_at: int | None, delete_through: int
+) -> bytes:
+    if replace_at is None:
+        return data[delete_through:]
+    return data[delete_through:replace_at] + replacement
+
+
 def scrub_stream_boundary(
     stdout: bytes, stderr: bytes, scrubbers: Sequence[tuple[bytes, bytes]]
 ) -> tuple[bytes, bytes]:
@@ -499,12 +507,18 @@ def scrub_stream_boundary(
             ),
             None,
         )
-        if stdout_boundary is not None:
-            stdout = stdout[:-stdout_boundary] + replacement
-            stderr = stderr[len(value) - stdout_boundary :]
-        if stderr_boundary is not None:
-            stderr = stderr[:-stderr_boundary] + replacement
-            stdout = stdout[len(value) - stderr_boundary :]
+        stdout = apply_boundary_edits(
+            stdout,
+            replacement,
+            len(stdout) - stdout_boundary if stdout_boundary is not None else None,
+            len(value) - stderr_boundary if stderr_boundary is not None else 0,
+        )
+        stderr = apply_boundary_edits(
+            stderr,
+            replacement,
+            len(stderr) - stderr_boundary if stderr_boundary is not None else None,
+            len(value) - stdout_boundary if stdout_boundary is not None else 0,
+        )
     return scrub_output(stdout, scrubbers), scrub_output(stderr, scrubbers)
 
 

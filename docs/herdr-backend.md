@@ -514,9 +514,10 @@ Placement runs under the same per-session presentation lock as the projection, a
 A live pane that already carries the task label refuses a duplicate launch, while an exited husk with that label is closed only after the replacement pane exists.
 A failure after the new pane exists closes that exact pane, and a crew placement writes no presentation journal.
 Cleanup closes only the task's exact pane through the ordinary exact-identity kill path and its focus-safe removal plan, so each crew workspace disappears with its last pane and a new one is created when a placement finds no room.
-List-live reports the home's crew panes alongside its home-workspace tabs, and a bare selector that matches no tab label falls back to an exact pane label, so recovery, send, capture, and turn-end detection use the recorded pane endpoint exactly as they do for a tab.
+List-live reports panes only from this home's recorded crew workspaces alongside its home-workspace tabs, so a same-labeled workspace belonging to another home in the shared session is never recovered as local work.
+A bare selector that matches no tab label falls back to an exact pane label, so recovery, send, capture, and turn-end detection use the recorded pane endpoint exactly as they do for a tab.
 
-`tests/fm-backend-herdr-crew.test.sh` pins parsing, first creation, grid fill, overflow, custom caps, cleanup rebalance, refill, recreation, record verification, duplicate refusal, list-live, and the no-layout-API fallback against a stateful fake.
+`tests/fm-backend-herdr-crew.test.sh` pins parsing, first creation, grid fill, overflow, custom caps, cleanup rebalance, refill, recreation, record verification, duplicate refusal, home-scoped list-live, and the no-layout-API fallback against a stateful fake.
 `tests/fm-backend-herdr-crew-workspace-e2e.test.sh` proves the same behavior and a real spawn and cleanup pass in a guarded named lab; [`verification/runtime-backends.md`](verification/runtime-backends.md#crew-workspace) owns the active versioned evidence.
 
 ## Default-tab prune safety

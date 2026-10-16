@@ -483,15 +483,28 @@ def scrub_stream_boundary(
     stdout: bytes, stderr: bytes, scrubbers: Sequence[tuple[bytes, bytes]]
 ) -> tuple[bytes, bytes]:
     for value, replacement in scrubbers:
-        for split in range(1, len(value)):
-            if stdout.endswith(value[:split]) and stderr.startswith(value[split:]):
-                stdout = stdout[:-split] + replacement
-                stderr = stderr[len(value) - split :]
-                break
-            if stderr.endswith(value[:split]) and stdout.startswith(value[split:]):
-                stderr = stderr[:-split] + replacement
-                stdout = stdout[len(value) - split :]
-                break
+        stdout_boundary = next(
+            (
+                split
+                for split in range(1, len(value))
+                if stdout.endswith(value[:split]) and stderr.startswith(value[split:])
+            ),
+            None,
+        )
+        stderr_boundary = next(
+            (
+                split
+                for split in range(1, len(value))
+                if stderr.endswith(value[:split]) and stdout.startswith(value[split:])
+            ),
+            None,
+        )
+        if stdout_boundary is not None:
+            stdout = stdout[:-stdout_boundary] + replacement
+            stderr = stderr[len(value) - stdout_boundary :]
+        if stderr_boundary is not None:
+            stderr = stderr[:-stderr_boundary] + replacement
+            stdout = stdout[len(value) - stderr_boundary :]
     return scrub_output(stdout, scrubbers), scrub_output(stderr, scrubbers)
 
 

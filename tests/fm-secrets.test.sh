@@ -121,7 +121,7 @@ test_run_scrubs_short_selected_values() {
 }
 
 test_run_scrubs_stream_boundary() {
-  local env_file output
+  local env_file output reverse_output
   env_file="$TMP_ROOT/stream-boundary.env"
   printf '%s\n' 'TOKEN=foobar' > "$env_file"
   output=$($TOOL run "$env_file" --only TOKEN -- \
@@ -146,6 +146,14 @@ test_run_scrubs_stream_boundary() {
     || fail "run failed while scrubbing an overlapping stdout-prefix boundary"
   output=$(cat "$TMP_ROOT/boundary.out" "$TMP_ROOT/boundary.err")
   assert_not_contains "$output" 'bar' "run leaked a stderr suffix when another secret matched the prefix"
+  printf '%s\n' 'TOKEN=abc' > "$env_file"
+  $TOOL run "$env_file" --only TOKEN -- \
+    sh -c 'printf cab; printf cab >&2' >"$TMP_ROOT/boundary.out" 2>"$TMP_ROOT/boundary.err" \
+    || fail "run failed while scrubbing both raw boundary orderings"
+  output=$(cat "$TMP_ROOT/boundary.out" "$TMP_ROOT/boundary.err")
+  reverse_output=$(cat "$TMP_ROOT/boundary.err" "$TMP_ROOT/boundary.out")
+  assert_not_contains "$output" 'abc' "run leaked a value across stdout then stderr"
+  assert_not_contains "$reverse_output" 'abc' "run leaked a value across stderr then stdout"
   pass "fm-secrets: run scrubs stream-boundary values"
 }
 

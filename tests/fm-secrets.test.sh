@@ -121,7 +121,7 @@ test_run_scrubs_short_selected_values() {
 }
 
 test_run_scrubs_stream_boundary() {
-  local env_file output
+  local env_file output reverse_output
   env_file="$TMP_ROOT/stream-boundary.env"
   printf '%s\n' 'TOKEN=foobar' > "$env_file"
   output=$($TOOL run "$env_file" --only TOKEN -- \
@@ -130,6 +130,47 @@ test_run_scrubs_stream_boundary() {
   assert_not_contains "$output" 'foobar' "run leaked a value split across output streams"
   assert_contains "$output" '<redacted:TOKEN>' \
     "run did not scrub a value split across output streams"
+  $TOOL run "$env_file" --only TOKEN -- \
+    sh -c 'printf bar; printf foo >&2' >"$TMP_ROOT/boundary.out" 2>"$TMP_ROOT/boundary.err" \
+    || fail "run failed while scrubbing a stderr-prefix boundary"
+  output=$(cat "$TMP_ROOT/boundary.out" "$TMP_ROOT/boundary.err")
+  assert_not_contains "$output" 'foo' "run leaked a stderr-prefix fragment"
+  assert_not_contains "$output" 'bar' "run leaked a stdout-suffix fragment"
+  printf '%s\n' 'TOKEN=foobar' 'OTHER_TOKEN=foo' > "$env_file"
+  output=$($TOOL run "$env_file" --only TOKEN,OTHER_TOKEN -- \
+    sh -c 'printf bar; printf foo >&2' 2>&1) \
+    || fail "run failed while scrubbing an overlapping stderr-prefix boundary"
+  assert_not_contains "$output" 'bar' "run leaked a suffix when another secret matched the prefix"
+  $TOOL run "$env_file" --only TOKEN,OTHER_TOKEN -- \
+    sh -c 'printf foo; printf bar >&2' >"$TMP_ROOT/boundary.out" 2>"$TMP_ROOT/boundary.err" \
+    || fail "run failed while scrubbing an overlapping stdout-prefix boundary"
+  output=$(cat "$TMP_ROOT/boundary.out" "$TMP_ROOT/boundary.err")
+  assert_not_contains "$output" 'bar' "run leaked a stderr suffix when another secret matched the prefix"
+  printf '%s\n' 'TOKEN=abcdef' 'OTHER_TOKEN=cdefgh' > "$env_file"
+  $TOOL run "$env_file" --only TOKEN,OTHER_TOKEN -- \
+    sh -c 'printf abc; printf defgh >&2' >"$TMP_ROOT/boundary.out" 2>"$TMP_ROOT/boundary.err" \
+    || fail "run failed while scrubbing overlapping raw boundaries"
+  output=$(cat "$TMP_ROOT/boundary.out" "$TMP_ROOT/boundary.err")
+  assert_not_contains "$output" 'abcdef' "run leaked the first overlapping boundary value"
+  assert_not_contains "$output" 'cdefgh' "run leaked the second overlapping boundary value"
+  assert_not_contains "$output" 'gh' "run leaked an overlapping boundary suffix"
+  assert_contains "$output" '<redacted:TOKEN>' "run lost the first overlapping marker"
+  printf '%s\n' 'TOKEN=abc' > "$env_file"
+  $TOOL run "$env_file" --only TOKEN -- \
+    sh -c 'printf cab; printf cab >&2' >"$TMP_ROOT/boundary.out" 2>"$TMP_ROOT/boundary.err" \
+    || fail "run failed while scrubbing both raw boundary orderings"
+  output=$(cat "$TMP_ROOT/boundary.out" "$TMP_ROOT/boundary.err")
+  reverse_output=$(cat "$TMP_ROOT/boundary.err" "$TMP_ROOT/boundary.out")
+  assert_not_contains "$output" 'abc' "run leaked a value across stdout then stderr"
+  assert_not_contains "$reverse_output" 'abc' "run leaked a value across stderr then stdout"
+  printf '%s\n' 'TOKEN=aaaa' > "$env_file"
+  $TOOL run "$env_file" --only TOKEN -- \
+    sh -c 'printf aaa; printf aaa >&2' >"$TMP_ROOT/boundary.out" 2>"$TMP_ROOT/boundary.err" \
+    || fail "run failed while preserving overlapping boundary markers"
+  output=$(cat "$TMP_ROOT/boundary.out")
+  reverse_output=$(cat "$TMP_ROOT/boundary.err")
+  assert_contains "$output" '<redacted:TOKEN>' "run corrupted a stdout boundary marker"
+  assert_contains "$reverse_output" '<redacted:TOKEN>' "run corrupted a stderr boundary marker"
   pass "fm-secrets: run scrubs stream-boundary values"
 }
 

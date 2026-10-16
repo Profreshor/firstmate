@@ -433,6 +433,16 @@ Pins are not inherited into secondmate homes: a local secondmate agent launches 
 A remote secondmate is launched on its host from its own home's configuration, so create the file in that remote home.
 [`bin/fm-worker-account-lib.sh`](../bin/fm-worker-account-lib.sh) owns parsing, the sign-in check, and the full list of credentials a Claude launch unsets; [runtime backend verification](verification/runtime-backends.md#worker-account-pin-sign-in-check) records the check against the real runners.
 
+## Crew memory cap (config/crew-memory-max)
+
+The optional local, gitignored `config/crew-memory-max` holds one systemd size, such as `6G`.
+When present, every worker launch, relaunch, and local secondmate launch runs inside its own transient systemd user scope under `fm-crew.slice` with that `MemoryMax`, so the agent and every process it starts share one cap and an out-of-memory kill stays inside that worker instead of hitting the whole host.
+When absent, launches are unchanged.
+A malformed value, or a host without `systemd-run`, refuses the launch.
+A fleet-wide ceiling is a property of the slice, not of this file: create `~/.config/systemd/user/fm-crew.slice` with `[Slice]` `MemoryHigh=`, `MemoryMax=`, and `MemorySwapMax=` sized for the host, then run `systemctl --user daemon-reload`.
+The cap requires the user manager to delegate the memory controller, which `cat /sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/cgroup.controllers` confirms by listing `memory`.
+[`bin/fm-spawn.sh`](../bin/fm-spawn.sh) owns parsing and the launch wrapper.
+
 ## Lavish server address (config/lavish-axi-host)
 
 The optional local, gitignored `config/lavish-axi-host` contains one non-empty address without whitespace for the per-machine Lavish server.

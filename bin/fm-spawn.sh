@@ -312,6 +312,15 @@
 #   worktree, or record exists and names the accepted values. The file is read
 #   on every spawn and relaunch, so a change reaches the next launch without a
 #   restart, and it is inherited into secondmate homes (bin/fm-config-inherit-lib.sh).
+# Crew memory cap (config/crew-memory-max):
+#   Opt-in. Absent leaves every launch unchanged. A present file holds one
+#   systemd size (such as 6G), and every launch - ship, scout, secondmate, and
+#   relaunch - then runs inside its own transient user scope
+#   fm-crew-<id>-<spawn-token>.scope under fm-crew.slice with that MemoryMax, so
+#   the agent and every process it starts share one cap and the OOM killer
+#   stays inside it. A fleet-wide ceiling belongs on fm-crew.slice itself (see
+#   docs/configuration.md). A malformed value, or a host without systemd-run,
+#   refuses the spawn before any endpoint, worktree, or record exists.
 # Worker account pin (config/claude-account, config/pi-account):
 #   Opt-in. With no file, a Claude or Pi launch is unchanged: Claude still
 #   receives this process's own CLAUDE_CONFIG_DIR when it is set, and Pi the
@@ -557,6 +566,29 @@ if [ "$LAVISH_AXI_HOST_CONFIG_PRESENT" = 1 ]; then
       exit 1
       ;;
   esac
+fi
+# config/crew-memory-max opts every launch into a memory-capped systemd user
+# scope under fm-crew.slice, so the kernel OOM killer reclaims a runaway worker
+# instead of the whole host. Read once per launch; a malformed value or a host
+# without systemd-run refuses rather than launching uncapped.
+if ! CREW_MEMORY_MAX_PRESENT=$(fm_config_source_present "$CONFIG/crew-memory-max"); then
+  exit 1
+fi
+CREW_MEMORY_MAX=
+if [ "$CREW_MEMORY_MAX_PRESENT" = 1 ]; then
+  if [ ! -f "$CONFIG/crew-memory-max" ] || [ ! -r "$CONFIG/crew-memory-max" ]; then
+    echo "error: config/crew-memory-max must be a readable regular file holding one size such as 6G" >&2
+    exit 1
+  fi
+  CREW_MEMORY_MAX=$(tr -d '[:space:]' <"$CONFIG/crew-memory-max" || true)
+  if ! [[ "$CREW_MEMORY_MAX" =~ ^[1-9][0-9]*[KMGT]?$ ]]; then
+    echo "error: config/crew-memory-max holds '$CREW_MEMORY_MAX'; expected a positive size such as 6G (bytes, or a K, M, G, or T suffix)" >&2
+    exit 1
+  fi
+  if ! command -v systemd-run >/dev/null 2>&1; then
+    echo "error: config/crew-memory-max is set but systemd-run is not available; remove the file or launch on a systemd host" >&2
+    exit 1
+  fi
 fi
 SUB_HOME_MARKER=".fm-secondmate-home"
 if [ -e "$STATE" ] || [ -L "$STATE" ]; then
@@ -5051,6 +5083,12 @@ if [ "$LAUNCH_ENV_ENABLED" = 1 ]; then
     LAUNCH_ENV_PREFIX="$LAUNCH_ENV_PREFIX "'${TRACEPARENT+"TRACEPARENT=$TRACEPARENT"}'
   fi
   LAUNCH="$LAUNCH_ENV_PREFIX /bin/sh -c $(shell_quote "$LAUNCH")"
+fi
+# config/crew-memory-max (header above): systemd-run stays outside any cleared
+# environment because it needs the pane's user-bus variables, and the launch is
+# re-wrapped in /bin/sh because it may begin with shell assignments.
+if [ -n "$CREW_MEMORY_MAX" ]; then
+  LAUNCH="systemd-run --user --scope --quiet --collect --slice=fm-crew.slice --unit=$(shell_quote "fm-crew-$ID-$SPAWN_GEN") -p MemoryMax=$CREW_MEMORY_MAX -- /bin/sh -c $(shell_quote "$LAUNCH")"
 fi
 # Implement the launch-delivery contract in this script's header. The full
 # home-identity hash isolates equal task ids across homes, and the spawn token in

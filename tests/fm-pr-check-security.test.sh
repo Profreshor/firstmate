@@ -179,6 +179,14 @@ case " $* " in
   *" api repos/"*"/commits/"*"/statuses?per_page=100 "*)
     printf '%s\n' '[[]]'
     ;;
+  *" api --paginate repos/"*"/rules/branches/"*merge_queue*)
+    ;;
+  *" api --paginate repos/"*"/rules/branches/"*)
+    printf '%s\n' '[]'
+    ;;
+  *" api repos/"*"/branches/"*)
+    printf '%s\n' '{"name":"main","protected":false}'
+    ;;
   *" api repos/"*"/pulls/"*)
     printf '%s\n' "{\"state\":\"open\",\"user\":{\"login\":\"author\"},\"head\":{\"sha\":\"${FM_TEST_GH_HEAD:-0123456789abcdef0123456789abcdef01234567}\"},\"draft\":false,\"mergeable\":true,\"merged_at\":null}"
     ;;
@@ -513,6 +521,30 @@ https://gerrit.example/c/proj/+/1|gerrit.example|proj|1
 https://gerrit.example.co.uk/c/a/b/c/d/+/42|gerrit.example.co.uk|a/b/c/d|42
 https://review.internal/c/All-Projects/+/123456|review.internal|All-Projects|123456
 EOF
+  while IFS='|' read -r url host owner repo number; do
+    [ -n "$url" ] || continue
+    fm_pr_url_parse "$url" || fail "parser rejected a canonical Forgejo pull request URL"
+    [ "$FM_PR_PROVIDER" = forgejo ] || fail "parser did not tag a plural-pulls URL as forgejo"
+    [ "$FM_PR_URL" = "$url" ] || fail "parser changed a canonical Forgejo pull request URL"
+    [ "$FM_PR_HOST" = "$host" ] || fail "parser returned wrong Forgejo host"
+    [ "$FM_PR_PATH" = "$owner/$repo" ] || fail "parser returned wrong Forgejo project path"
+    [ "$FM_PR_OWNER" = "$owner" ] || fail "parser returned wrong Forgejo owner"
+    [ "$FM_PR_REPO" = "$repo" ] || fail "parser returned wrong Forgejo repository"
+    [ "$FM_PR_NUMBER" = "$number" ] || fail "parser returned wrong Forgejo pull request number"
+  done <<'EOF'
+https://git.example.com/fixture/fixture-repo/pulls/1|git.example.com|fixture|fixture-repo|1
+https://code.internal/my-org/repo.name_with-parts/pulls/123456|code.internal|my-org|repo.name_with-parts|123456
+EOF
+  # A Forgejo-shaped URL on github.com is refused (anti-spoofing, mirroring
+  # fm_pr_forge_host_valid's refusal of github.com), and neither GitHub's
+  # singular "pull" nor GitLab's "/-/merge_requests/" is accepted as forgejo.
+  for row in \
+    'https://github.com/fixture/fixture-repo/pulls/1' \
+    'https://git.example.com/fixture/fixture-repo/pull/1' \
+    'https://git.example.com/group/sub/project/pulls/1'
+  do
+    ! fm_pr_url_parse "$row" || fail "parser accepted a URL that must not resolve as forgejo: $row"
+  done
   fm_pr_url_parse https://github.com/a/b/pull/1 || fail "parser rejected canonical URL"
   [ "$FM_PR_PROVIDER" = github ] || fail "parser did not tag a pull request URL as github"
   [ "$FM_PR_HOST" = github.com ] || fail "parser returned wrong GitHub host"
@@ -653,6 +685,41 @@ test_draft_pull_request_is_not_armed() {
     > "$dir/stdout" 2> "$dir/stderr" || fail "an unreadable draft state blocked arming"
   [ -f "$dir/home/state/task-a.check.sh" ] || fail "an unreadable draft state was not armed"
   pass "arming refuses a draft pull request, naming it, and arms a ready or unreadable one"
+}
+
+# A secondmate is a persistent worker, not a delivery lane: it never owns a
+# pull request of its own. A URL relayed onto its status channel belongs to a
+# task in the mate's own home, which arms its own watch, so arming one here is
+# refused before anything is recorded - a poll on the mate would otherwise mark
+# the merge notified and queue the mate itself for teardown as landed work.
+test_secondmate_record_refuses_a_pr_watch() {
+  local dir rc
+  dir=$(make_case secondmate-refuses-watch)
+  fm_write_meta "$dir/home/state/domain.meta" \
+    'window=session:fm-domain' \
+    "worktree=$dir/secondmate-home" \
+    "project=$dir/project" \
+    'kind=secondmate' \
+    'mode=secondmate' \
+    'backend=tmux' \
+    "home=$dir/secondmate-home"
+  mkdir -p "$dir/secondmate-home"
+  cp "$dir/home/state/domain.meta" "$dir/meta.before"
+  set +e
+  run_check_entry "$dir" domain https://github.com/o/r/pull/9 \
+    > "$dir/stdout" 2> "$dir/stderr"; rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "a merge watch was armed on a secondmate record"
+  grep -qi 'secondmate' "$dir/stderr" || fail "the refusal did not name the record's kind"
+  grep -qF 'https://github.com/o/r/pull/9' "$dir/stderr" \
+    || fail "the refusal did not name the pull request it refused"
+  cmp -s "$dir/meta.before" "$dir/home/state/domain.meta" \
+    || fail "the refusal changed secondmate metadata"
+  [ ! -e "$dir/home/state/domain.check.sh" ] || fail "the refusal armed a poll on a secondmate"
+  [ ! -e "$dir/home/state/domain.pr-poll" ] || fail "the refusal wrote a poll sidecar on a secondmate"
+  [ ! -s "$dir/gh.log" ] || fail "the refusal reached the forge"
+  [ ! -s "$dir/guard.log" ] || fail "the refusal reached the guard"
+  pass "fm-pr-check refuses to record a PR or arm a merge watch on a secondmate record"
 }
 
 # With no forge-reported head (gh cannot supply one), the named head is the
@@ -1928,6 +1995,145 @@ test_gerrit_nm_ready_gate_requires_recovered_custody() {
 # merge request into a merge. Its evidence against the public fixture project
 # https://gitlab.com/KarotKris/gitlab-merge-watch-fixture is in
 # docs/gitlab-merge-watch.md; this exercises the same paths hermetically.
+# A Forgejo pull request is followed by number through "tea api" on the one
+# login registered for its host. Only a boolean merged field of true wakes the
+# poll: tea api exits 0 on an HTTP error with the error body as output, so an
+# error body, an unmerged record, a tea failure, and an ambiguous login all
+# stay silent, and the read never depends on how many newer pull requests the
+# repository has.
+test_forgejo_merge_watch() {
+  local dir state out url value
+  dir=$(make_case forgejo-merge-watch)
+  state="$dir/home/state"
+  url=https://forgejo.example/o/r/pulls/7
+  cat > "$dir/fakebin/tea" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FM_TEST_TEA_LOG"
+if [ "${1:-} ${2:-}" = "login list" ]; then
+  printf '[\n'
+  printf '  {\n    "name": "main",\n    "url": "https://forgejo.example"\n  }'
+  if [ -n "${FM_TEST_TEA_SECOND_LOGIN:-}" ]; then
+    printf ',\n  {\n    "name": "other",\n    "url": "https://forgejo.example"\n  }'
+  fi
+  printf '\n]\n'
+  exit 0
+fi
+[ "${1:-}" = api ] || exit 0
+[ -z "${FM_TEST_TEA_FAIL:-}" ] || exit 1
+case "${FM_TEST_TEA_PULL:-open}" in
+  merged) printf '{"state":"closed","merged":true,"head":{"sha":"abc"}}\n' ;;
+  error) printf '{"message":"The target couldn'"'"'t be found.","url":"x"}\n' ;;
+  *) printf '{"state":"open","merged":false,"head":{"sha":"abc"}}\n' ;;
+esac
+SH
+  chmod +x "$dir/fakebin/tea"
+  ln -sf "$(command -v jq)" "$dir/fakebin/jq"
+  : > "$dir/tea.log"
+
+  write_poll_meta "$state" task-a "$url"
+  fm_pr_poll_prepare "$state" task-a forgejo "$url" forgejo.example o/r 7 "$POLL" \
+    || fail "could not prepare a Forgejo poll"
+  fm_pr_poll_publish_prepared || fail "could not publish a Forgejo poll"
+
+  for value in open error; do
+    out=$(FM_TEST_TEA_LOG="$dir/tea.log" FM_TEST_TEA_PULL=$value run_poll "$dir")
+    [ -z "$out" ] || fail "Forgejo poll emitted for a $value reading"
+  done
+  out=$(FM_TEST_TEA_LOG="$dir/tea.log" FM_TEST_TEA_PULL=merged FM_TEST_TEA_FAIL=1 run_poll "$dir")
+  [ -z "$out" ] || fail "Forgejo poll emitted after a tea failure"
+  out=$(FM_TEST_TEA_LOG="$dir/tea.log" FM_TEST_TEA_PULL=merged FM_TEST_TEA_SECOND_LOGIN=1 run_poll "$dir")
+  [ -z "$out" ] || fail "Forgejo poll emitted with an ambiguous tea login"
+  out=$(FM_TEST_TEA_LOG="$dir/tea.log" FM_TEST_TEA_PULL=merged run_poll "$dir")
+  [ "$out" = merged ] || fail "Forgejo poll did not emit exactly one merged line"
+
+  grep -qF -- "api --login main --repo o/r /repos/{owner}/{repo}/pulls/7" "$dir/tea.log" \
+    || fail "the poll did not read the one pull request by number on the host's login"
+  ! grep -qF -- "pulls list" "$dir/tea.log" \
+    || fail "the poll scanned a pull request list instead of reading by number"
+  pass "Forgejo poll reads one pull request by number through tea api and wakes only on merged true"
+}
+
+# The one tea login for a Forgejo host is found by parsing
+# `tea login list --output json` as JSON, never by splitting each line on
+# quotes. The pretty-printed fixture below is byte-for-byte what tea 0.14.0
+# prints for two logins; the two compact fixtures are the same records with one
+# object per line and as one line, the shapes a line-oriented split misread as
+# a url equal to the login name, refusing every host. Both the sourced helper
+# and the static watcher body, which keeps its own copy of the filter, must
+# resolve every shape, strip scheme, port, and path from the url, and refuse
+# an ambiguous host.
+test_forgejo_login_list_shapes() {
+  local dir state out shape url
+  dir=$(make_case forgejo-login-shapes)
+  state="$dir/home/state"
+  cat > "$dir/tea-multiline.json" <<'JSON'
+[
+  {
+    "name": "fixture-one",
+    "url": "https://git.example.com",
+    "ssh_host": "git.example.com",
+    "user": "someone",
+    "default": "true"
+  },
+  {
+    "name": "fixture-two",
+    "url": "http://code.internal:3000/",
+    "ssh_host": "code.internal",
+    "user": "other",
+    "default": "false"
+  }
+]
+JSON
+  jq -c . "$dir/tea-multiline.json" > "$dir/tea-oneline.json"
+  { printf '[\n'; jq -c '.[]' "$dir/tea-multiline.json" | sed '1!s/^/,/'; printf ']\n'; } \
+    > "$dir/tea-perobject.json"
+  [ "$(wc -l < "$dir/tea-oneline.json")" -eq 1 ] || fail "the one-line fixture is not one line"
+  grep -q '^{"name":"fixture-one","url":"https://git.example.com"' "$dir/tea-perobject.json" \
+    || fail "the per-object fixture does not put a whole login on one line"
+  printf '[{"name":"a","url":"https://git.example.com"},{"name":"b","url":"https://git.example.com:3000/x"}]\n' \
+    > "$dir/tea-ambiguous.json"
+  cat > "$dir/fakebin/tea" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-} ${2:-}" = "login list" ]; then
+  cat "$FM_TEST_TEA_LOGINS"
+  exit 0
+fi
+[ "${1:-}" = api ] || exit 0
+printf '%s\n' "$*" >> "$FM_TEST_TEA_LOG"
+printf '{"state":"closed","merged":true,"head":{"sha":"abc"}}\n'
+SH
+  chmod +x "$dir/fakebin/tea"
+  ln -sf "$(command -v jq)" "$dir/fakebin/jq"
+  : > "$dir/tea.log"
+
+  url=https://code.internal/o/r/pulls/7
+  write_poll_meta "$state" task-a "$url"
+  fm_pr_poll_prepare "$state" task-a forgejo "$url" code.internal o/r 7 "$POLL" \
+    || fail "could not prepare a Forgejo poll"
+  fm_pr_poll_publish_prepared || fail "could not publish a Forgejo poll"
+
+  for shape in multiline oneline perobject; do
+    out=$(FM_TEST_TEA_LOGINS="$dir/tea-$shape.json" PATH="$dir/fakebin:$PATH" fm_pr_forgejo_login git.example.com) \
+      || fail "$shape: the login helper refused a host with exactly one login"
+    [ "$out" = fixture-one ] || fail "$shape: the login helper resolved '$out' for git.example.com"
+    out=$(FM_TEST_TEA_LOGINS="$dir/tea-$shape.json" PATH="$dir/fakebin:$PATH" fm_pr_forgejo_login code.internal) \
+      || fail "$shape: the login helper refused a url with a port and trailing slash"
+    [ "$out" = fixture-two ] || fail "$shape: the login helper resolved '$out' for code.internal"
+    ! FM_TEST_TEA_LOGINS="$dir/tea-$shape.json" PATH="$dir/fakebin:$PATH" fm_pr_forgejo_login elsewhere.example >/dev/null \
+      || fail "$shape: the login helper resolved a host with no registered login"
+    out=$(FM_TEST_TEA_LOGINS="$dir/tea-$shape.json" FM_TEST_TEA_LOG="$dir/tea.log" run_poll "$dir")
+    [ "$out" = merged ] || fail "$shape: the static poll did not resolve the login and report the merge"
+    grep -qF -- "api --login fixture-two --repo o/r" "$dir/tea.log" \
+      || fail "$shape: the static poll did not read through the host's login"
+    : > "$dir/tea.log"
+  done
+  ! FM_TEST_TEA_LOGINS="$dir/tea-ambiguous.json" PATH="$dir/fakebin:$PATH" fm_pr_forgejo_login git.example.com >/dev/null \
+    || fail "the login helper picked one of two logins for the same host"
+  out=$(FM_TEST_TEA_LOGINS="$dir/tea-ambiguous.json" FM_TEST_TEA_LOG="$dir/tea.log" run_poll "$dir")
+  [ -z "$out" ] || fail "the static poll read through an ambiguous login"
+  pass "Forgejo login match parses tea's JSON in every line shape, in the helper and the static poll"
+}
+
 test_gitlab_merge_watch() {
   local dir state out rc url value noglab entry bindir name
   dir=$(make_case gitlab-merge-watch)
@@ -2396,6 +2602,11 @@ test_different_merged_pr_for_same_task_is_not_absorbed() {
   pass "a different merged PR for the same task gets its own first notification"
 }
 
+# A secondmate is a persistent worker, never landed work: a merge poll armed
+# on its record (bin/fm-pr-check.sh refuses new ones) is residue carrying a
+# relayed child's pr=. When that residue reads merged the watcher retires the
+# poll silently - no merge outcome, no notified marker, no wake that could put
+# the mate itself up for teardown - and leaves every lifecycle artifact whole.
 test_persistent_secondmate_retirement_is_poll_only() {
   local dir state meta_before status_before registry_before endpoint_before rc
   dir=$(make_case merged-retirement-secondmate)
@@ -2419,19 +2630,30 @@ test_persistent_secondmate_retirement_is_poll_only() {
   registry_before=$(shasum -a 256 "$dir/home/data/secondmates.md")
   endpoint_before=$(shasum -a 256 "$dir/endpoint-sentinel")
   seed_canonical_poll "$dir" domain https://github.com/o/r/pull/2
+  add_stop_custom_check "$dir"
 
   set +e
   FM_TEST_GH_STATE=MERGED run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/watch.out" 2> "$dir/watch.err"
   rc=$?
   set -e
   [ "$rc" -eq 0 ] || fail "persistent secondmate merged watcher failed: $(cat "$dir/watch.err")"
+  case "$(cat "$dir/watch.out")" in
+    check:*z-stop.check.sh:*stop-cycle) ;;
+    *) fail "a secondmate's merged poll woke the watcher instead of retiring silently: $(cat "$dir/watch.out")" ;;
+  esac
   assert_poll_absent "$state" domain
+  [ ! -e "$state/domain.pr-poll-merge-notified" ] \
+    || fail "a secondmate's retired poll recorded a merge notification"
+  ! grep -F 'merged-domain-' "$state/.wake-queue" >/dev/null 2>&1 \
+    || fail "a secondmate's merged poll queued a landed-work wake"
+  ! grep -F 'domain.check.sh' "$state/.wake-queue" >/dev/null 2>&1 \
+    || fail "a secondmate's merged poll queued a check wake"
   [ "$(shasum -a 256 "$state/domain.meta")" = "$meta_before" ] || fail "retirement changed secondmate metadata"
   [ "$(shasum -a 256 "$state/domain.status")" = "$status_before" ] || fail "retirement changed secondmate status"
   [ "$(shasum -a 256 "$dir/home/data/secondmates.md")" = "$registry_before" ] || fail "retirement changed secondmate registry"
   [ "$(shasum -a 256 "$dir/endpoint-sentinel")" = "$endpoint_before" ] || fail "retirement changed secondmate endpoint evidence"
   [ -d "$dir/secondmate-home" ] || fail "retirement removed the persistent secondmate home"
-  pass "merged poll retirement preserves every persistent secondmate lifecycle artifact"
+  pass "a merged poll on a persistent secondmate retires silently: no outcome, marker, or wake, and every lifecycle artifact preserved"
 }
 
 test_retirement_crash_recovery() {
@@ -3382,6 +3604,8 @@ SH
 
 test_parser_matrix
 test_gitlab_merge_watch
+test_forgejo_merge_watch
+test_forgejo_login_list_shapes
 test_gerrit_merge_watch
 test_gerrit_arming_records_no_patch_set_revision
 test_gerrit_ready_gate_reads_the_published_tree
@@ -3406,6 +3630,7 @@ test_retirement_queue_failure_and_receipt_tampering
 test_gitlab_merged_poll_retires
 test_invalid_entrypoints_have_zero_side_effects
 test_draft_pull_request_is_not_armed
+test_secondmate_record_refuses_a_pr_watch
 test_unpushed_named_head_refuses_registration
 test_direct_pr_unpushed_commit_refuses_registration
 test_valid_recording_and_merge_derivation

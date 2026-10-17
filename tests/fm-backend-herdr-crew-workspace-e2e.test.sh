@@ -222,6 +222,28 @@ read -r WS TAB _ < <(place fm-t9) || fail 'could not place a crew task after the
   || fail 'the recreated crew workspace should again sit right after the home'
 pass 'real herdr: each crew workspace disappears with its last pane and the next spawn recreates one'
 
+# Separate homes can create identically labeled crew workspaces in one Herdr
+# session. Recovery must use each home's recorded workspace ids, not that
+# mutable shared label, so it never offers another home's pane as local work.
+HOME_A=$HOME_DIR
+OTHER_HOME="$TMP_ROOT/other-home"
+mkdir -p "$OTHER_HOME/state"
+HOME_DIR=$OTHER_HOME
+read -r OTHER_WS _ < <(place fm-foreign) || fail 'could not place the foreign-home crew task'
+[ -n "$OTHER_WS" ] && [ "$OTHER_WS" != "$WS" ] || fail 'the foreign home should create a distinct crew workspace'
+HOME_DIR=$HOME_A
+LIVE_A=$(adapter fm_backend_herdr_list_live "$HERDR_LAB_SESSION")
+HOME_DIR=$OTHER_HOME
+LIVE_B=$(adapter fm_backend_herdr_list_live "$HERDR_LAB_SESSION")
+HOME_DIR=$HOME_A
+[ "$(lab workspace list | jq '[.result.workspaces[] | select(.label == "firstmate-crew")] | length')" = 2 ] \
+  || fail 'the shared session should contain two same-labeled crew workspaces'
+printf '%s\n' "$LIVE_A" | grep -Fq $'\tfm-t9' || fail "home A did not list its recorded crew pane: $LIVE_A"
+! printf '%s\n' "$LIVE_A" | grep -Fq $'\tfm-foreign' || fail "home A recovered foreign work from a same-labeled workspace: $LIVE_A"
+printf '%s\n' "$LIVE_B" | grep -Fq $'\tfm-foreign' || fail "home B did not list its recorded crew pane: $LIVE_B"
+! printf '%s\n' "$LIVE_B" | grep -Fq $'\tfm-t9' || fail "home B recovered foreign work from a same-labeled workspace: $LIVE_B"
+pass 'real herdr: list-live scopes same-labeled crew workspaces to the recording home'
+
 # The same layout through the real spawn and teardown scripts: a home whose
 # config selects "crew" gets its crewmates as panes of one crew workspace, and
 # teardown closes each exact pane.

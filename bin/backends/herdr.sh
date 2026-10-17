@@ -4112,7 +4112,8 @@ EOF
 # primary-spawns-a-secondmate path in fm-spawn.sh. Read-only: a session/
 # workspace that does not exist yet simply lists nothing. One
 # "<session>:<pane_id>\t<label>" line per live task tab, followed by one per
-# fm-<id>-labeled pane in each workspace carrying this home's crew label.
+# fm-<id>-labeled pane in each crew workspace this home recorded (never another
+# home's workspace that merely shares the crew label).
 fm_backend_herdr_list_live() {  # <session>
   local session=$1 wsid tabs tab_id label pane_id
   wsid=$(fm_backend_herdr_workspace_find "$session") || wsid=
@@ -4128,8 +4129,7 @@ fm_backend_herdr_list_live() {  # <session>
     [ -n "$wsid" ] || continue
     fm_backend_herdr_cli "$session" pane list --workspace "$wsid" 2>/dev/null | jq -r --arg session "$session" \
       '.result.panes[]? | select((.label // "") | startswith("fm-")) | "\($session):\(.pane_id)\t\(.label)"' 2>/dev/null
-  done < <(fm_backend_herdr_cli "$session" workspace list 2>/dev/null | jq -r --arg want "$(fm_backend_herdr_crew_workspace_label)" \
-    '.result.workspaces[]? | select(.label == $want) | .workspace_id' 2>/dev/null)
+  done < <(fm_backend_herdr_crew_workspace_recorded "${FM_STATE_OVERRIDE:-${FM_HOME:-}/state}" "$session" 2>/dev/null)
   return 0
 }
 

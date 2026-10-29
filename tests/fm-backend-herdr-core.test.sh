@@ -259,6 +259,21 @@ test_kill() {
   pass "kill: ends and removes the owned terminal, quiet when gone, loud when it survives"
 }
 
+test_finished_terminal_rebind() {
+  reset_hc
+  local target replacement
+  target=$(HC_SESSION=lab new_task t1)
+  set_terminal t2 '.state = "finished" | .foreground = null'
+  fm_backend_herdr_core_remove_finished "$target" fm-t1 || fail "an owned finished terminal must be removable"
+  assert_equals null "$(jq -c '.terminals.t2' "$FM_HC_STATE")" "the finished terminal must be removed"
+  replacement=$(HC_SESSION=lab new_task t1) || fail "the replacement terminal must be created"
+  assert_equals lab:t3 "$replacement" "the replacement must use the recorded session"
+  assert_equals "$TMP_ROOT" "$(jq -r '.terminals.t3.cwd' "$FM_HC_STATE")" "the replacement must use the recorded worktree"
+  fm_backend_herdr_core_remove_finished "$replacement" fm-other && fail "a terminal for another task must not be removed"
+  assert_equals live "$(jq -r '.terminals.t3.state' "$FM_HC_STATE")" "a live terminal must remain for adoption"
+  pass "finished terminal rebind: removes only the owned exit, then replaces it in its session and worktree"
+}
+
 test_list_live_is_home_scoped() {
   reset_hc
   local live
@@ -338,6 +353,7 @@ test_capture_and_current_path
 test_send_text_submit
 test_send_key_normalizes
 test_kill
+test_finished_terminal_rebind
 test_list_live_is_home_scoped
 test_endpoint_validation_and_absence
 test_detection

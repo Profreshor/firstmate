@@ -354,6 +354,16 @@ fm_backend_herdr_core_kill() {  # <target> [unused] [expected-label]
   return 1
 }
 
+fm_backend_herdr_core_remove_finished() {  # <target> <expected-label>
+  local rc=0 state
+  fm_backend_herdr_core_get "$1" "$2" || return 1
+  state=$(printf '%s' "$FM_BACKEND_HERDR_CORE_JSON" | jq -r '.state // empty' 2>/dev/null)
+  [ "$state" = finished ] || return 1
+  fm_backend_herdr_core_cli "$FM_BACKEND_HERDR_CORE_SESSION" rm "$FM_BACKEND_HERDR_CORE_ADDRESS" --json >/dev/null 2>&1 || return 2
+  fm_backend_herdr_core_get "$1" "$2" || rc=$?
+  [ "$rc" -eq 3 ] || return 2
+}
+
 # fm_backend_herdr_core_list_live: recorded-inventory discovery, scoped by the
 # fm_home label to this home only. One "<session>:<address>\tfm-<id>" line per
 # live task terminal. Read-only; an unreachable core lists nothing.

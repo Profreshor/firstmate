@@ -2029,6 +2029,17 @@ if [ "$RELAUNCH" -eq 1 ]; then
   RELAUNCH_TARGET=$FM_BACKEND_VALIDATED_TARGET
   fm_backend_validate_spawn "$BACKEND" || exit 1
   fm_backend_source "$BACKEND" || exit 1
+  if [ "$BACKEND" = herdr-core ]; then
+    fm_backend_herdr_core_remove_finished "$RELAUNCH_TARGET" "fm-$ID"
+    case $? in
+      0) RELAUNCH_REBIND=1 ;;
+      1) ;;
+      *)
+        echo "error: task $ID's finished herdr-core terminal could not be removed; refusing to relaunch" >&2
+        exit 1
+        ;;
+    esac
+  fi
   # A relaunch must PROVE the previous agent is gone before it launches another
   # one into the same endpoint, and only tmux and herdr have a recovery-grade
   # classifier that can (bin/fm-control-lib.sh owns that capability table).

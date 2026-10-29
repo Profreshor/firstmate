@@ -2042,7 +2042,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
     esac
   fi
   # A relaunch must PROVE the previous agent is gone before it launches another
-  # one into the same endpoint, and only tmux and herdr have a recovery-grade
+  # one into the same endpoint, and only tmux, herdr, and herdr-core have a recovery-grade
   # classifier that can (bin/fm-control-lib.sh owns that capability table).
   fm_control_backend_state_verified "$BACKEND" || {
     echo "error: backend '$BACKEND' has no recovery-grade agent-state classifier, so a relaunch cannot prove the previous agent exited; refusing rather than risking two agents in one endpoint" >&2
@@ -2060,12 +2060,16 @@ if [ "$RELAUNCH" -eq 1 ]; then
   # endpoint was DESTROYED" with "the endpoint is UNREACHABLE from here right
   # now", and an unreachable endpoint can still hold the live agent this
   # relaunch would duplicate. So absence is PROVEN before it may rebind, never
-  # inferred from a failed read - and only HERDR can prove it:
+  # inferred from a failed read - and only Herdr and herdr-core can prove it:
   #   herdr - the recorded session's server is started, and the recorded pane is
   #           RE-READ through that session's own socket. `dead` means the pane
   #           survived the restart and is adopted after all; `alive` means the
   #           agent came back and refuses; only a second `missing` proves the
   #           pane itself did not survive.
+  #   herdr-core - the recorded core is started, and the recorded terminal is
+  #           re-read through its own socket. `dead` means the terminal
+  #           survived and is adopted; only a second `missing` proves it did
+  #           not survive.
   #   tmux  - REFUSES, always. A task record carries no socket identity for its
   #           endpoint, and a server-wide inventory describes only the server
   #           this process addresses, so no read available here can tell "gone"

@@ -1,0 +1,15 @@
+/tmp/fm-lab.77JYwa
+{"core":{"id":"74f584d76eea3cf2c837e120cc2ac09d","name":"data-centre"},"finished":0,"holder":null,"holders":[],"installed_by":null,"live":0,"pid":2180717,"uptime_ms":2,"version":"0.1.13"}
+spawned hclive harness=codex kind=scout window=fm-lab-herdr-core-e2e-2180676-4049:t1 worktree=/home/curtis/.treehouse/01M64SSQ4P7YDDBZ7T38CK6M6J-2f89d1/1/01M64SSQ4P7YDDBZ7T38CK6M6J
+--- endpoint metadata ---
+window=fm-lab-herdr-core-e2e-2180676-4049:t1
+worktree=/home/curtis/.treehouse/01M64SSQ4P7YDDBZ7T38CK6M6J-2f89d1/1/01M64SSQ4P7YDDBZ7T38CK6M6J
+backend=herdr-core
+herdr_core_session=fm-lab-herdr-core-e2e-2180676-4049
+herdr_core_terminal=t1
+A new version of treehouse is available: v3.1.2 → v3.1.7
+Run "treehouse update" to update
+
+🌳 Worktree returned to pool.
+teardown hclive complete (window fm-lab-herdr-core-e2e-2180676-4049:t1, worktree /home/curtis/.treehouse/01M64SSQ4P7YDDBZ7T38CK6M6J-2f89d1/1/01M64SSQ4P7YDDBZ7T38CK6M6J)
+Backlog: hclive just finished (this home keeps no markdown backlog at /tmp/fm-lab.77JYwa/data/backlog.md). Update /tmp/fm-lab.77JYwa/data/backlog.md - move hclive to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.

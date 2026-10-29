@@ -1,0 +1,5 @@
+/tmp/fm-lab.EHHaFD
+foreign-terminal=t1
+{"address":"t1","agent":"zsh","cwd":"/home/curtis/.no-mistakes/worktrees/aa96bb817995/01M64SSQ4P7YDDBZ7T38CK6M6J","state":"live","turn":0}
+adapter-capture-exit=1
+agent-state=missing

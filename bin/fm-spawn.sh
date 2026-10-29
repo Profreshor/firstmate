@@ -2030,8 +2030,9 @@ if [ "$RELAUNCH" -eq 1 ]; then
   fm_backend_validate_spawn "$BACKEND" || exit 1
   fm_backend_source "$BACKEND" || exit 1
   if [ "$BACKEND" = herdr-core ]; then
-    fm_backend_herdr_core_remove_finished "$RELAUNCH_TARGET" "fm-$ID"
-    case $? in
+    RELAUNCH_FINISHED_RC=0
+    fm_backend_herdr_core_remove_finished "$RELAUNCH_TARGET" "fm-$ID" || RELAUNCH_FINISHED_RC=$?
+    case "$RELAUNCH_FINISHED_RC" in
       0) RELAUNCH_REBIND=1 ;;
       1) ;;
       *)

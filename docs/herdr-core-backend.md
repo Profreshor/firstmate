@@ -49,7 +49,8 @@ A new task lands in the session the spawning Firstmate addresses.
 
 Routine supervision uses `bin/fm-peek.sh <id>` and `FM_HOME=<home> bin/fm-send.sh <id> '<text>'`.
 Interrupt, exit, and relaunch run through `bin/fm-control.sh`, because herdr-core has a recovery-grade agent-state classifier: it classifies the foreground process hc reports through the same shared classifier tmux and Herdr use, reads a finished terminal or a shell in the foreground as agent-free, and reads `missing` only when the recorded session's core reports this home's terminal absent.
-A relaunch adopts an agent-free terminal, or creates one fresh terminal in the recorded session and worktree when the old one is proven gone.
+A relaunch adopts a live terminal whose shell is in the foreground.
+A finished terminal is removed and replaced in its recorded session and worktree, while an absent terminal is replaced once its absence is proven.
 Busy state comes from hc's own status, which the program reports itself; `working` counts as busy only while a harness process is in the foreground.
 
 ## Limits

@@ -259,19 +259,35 @@ test_kill() {
   pass "kill: ends and removes the owned terminal, quiet when gone, loud when it survives"
 }
 
-test_finished_terminal_rebind() {
+test_finished_terminal_relaunch() {
   reset_hc
-  local target replacement
-  target=$(HC_SESSION=lab new_task t1)
+  local id=finished-relaunch project="$TMP_ROOT/relaunch-project" wt="$TMP_ROOT/relaunch-worktree" target out
+  fm_git_worktree "$project" "$wt" "$id"
+  mkdir -p "$HOME_DIR/data/$id" "$HOME_DIR/config" "$HOME_DIR/projects"
+  cat > "$HOME_DIR/data/$id/brief.md" <<EOF
+# Task
+## Captain's intent
+Relaunch a finished herdr-core worker.
+
+## Firstmate spec
+Exercise the relaunch behavior under test.
+EOF
+  target=$(HC_SESSION=lab new_task "$id")
   set_terminal t2 '.state = "finished" | .foreground = null'
-  fm_backend_herdr_core_remove_finished "$target" fm-t1 || fail "an owned finished terminal must be removable"
+  {
+    printf 'window=%s\n' "$target"
+    printf 'endpoint_task_id=%s\n' "$id"
+    printf 'worktree=%s\nproject=%s\nharness=codex\nkind=ship\nmode=no-mistakes\nyolo=off\ntasktmp=%s/tasktmp\nmodel=default\neffort=default\nbackend=herdr-core\nherdr_core_session=lab\nherdr_core_terminal=t2\n' \
+      "$wt" "$project" "$TMP_ROOT"
+  } > "$HOME_DIR/state/$id.meta"
+  mkdir -p "$TMP_ROOT/user-home"
+  out=$(HOME="$TMP_ROOT/user-home" FM_SPAWN_NO_GUARD=1 "$ROOT/bin/fm-spawn.sh" "$id" --relaunch --harness codex 2>&1) \
+    || fail "a finished terminal must relaunch through fm-spawn.sh: $out"
   assert_equals null "$(jq -c '.terminals.t2' "$FM_HC_STATE")" "the finished terminal must be removed"
-  replacement=$(HC_SESSION=lab new_task t1) || fail "the replacement terminal must be created"
-  assert_equals lab:t3 "$replacement" "the replacement must use the recorded session"
-  assert_equals "$TMP_ROOT" "$(jq -r '.terminals.t3.cwd' "$FM_HC_STATE")" "the replacement must use the recorded worktree"
-  fm_backend_herdr_core_remove_finished "$replacement" fm-other && fail "a terminal for another task must not be removed"
-  assert_equals live "$(jq -r '.terminals.t3.state' "$FM_HC_STATE")" "a live terminal must remain for adoption"
-  pass "finished terminal rebind: removes only the owned exit, then replaces it in its session and worktree"
+  assert_equals lab:t3 "$(fm_meta_get "$HOME_DIR/state/$id.meta" window)" "the task record must bind the replacement in its recorded session"
+  assert_equals "$wt" "$(jq -r '.terminals.t3.cwd' "$FM_HC_STATE")" "the replacement must use the recorded worktree"
+  assert_equals live "$(jq -r '.terminals.t3.state' "$FM_HC_STATE")" "the replacement terminal must be live"
+  pass "finished terminal relaunch: replaces the exit in its recorded session and worktree"
 }
 
 test_list_live_is_home_scoped() {
@@ -353,7 +369,7 @@ test_capture_and_current_path
 test_send_text_submit
 test_send_key_normalizes
 test_kill
-test_finished_terminal_rebind
+test_finished_terminal_relaunch
 test_list_live_is_home_scoped
 test_endpoint_validation_and_absence
 test_detection

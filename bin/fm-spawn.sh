@@ -70,15 +70,16 @@
 #   positional, and batch pairs are all refused alongside it; only harness,
 #   model, and effort may change, which is what makes a harness switch one
 #   ordinary relaunch. It refuses unless the recorded endpoint is positively
-#   agent-free on a backend with a recovery-grade agent-state classifier (tmux
-#   or herdr), and clears the previous harness's per-task wiring before arming
+#   agent-free on a backend with a recovery-grade agent-state classifier (tmux,
+#   herdr, or herdr-core), and clears the previous harness's per-task wiring before arming
 #   the new incarnation. Two verdicts are agent-free: a `dead` endpoint is
 #   ADOPTED as-is, while an endpoint PROVEN gone is RE-CREATED in the recorded
 #   worktree and the republished record rebinds the task to it. That proof is
 #   its own step, because a backend's `missing` also covers an endpoint that is
 #   merely unreachable from here - and it is only available on HERDR, which must
 #   still read the recorded pane as gone once that session's server is running
-#   again. A tmux `missing` always refuses: a task record carries no socket
+#   again, and on herdr-core, whose every read is pinned to the recorded
+#   session's core. A tmux `missing` always refuses: a task record carries no socket
 #   identity for its endpoint, so no read here can tell a destroyed window from
 #   one on a tmux server this process cannot address. An endpoint that turns out
 #   to have survived refuses too. The worktree is reused untouched either way; a
@@ -106,19 +107,21 @@
 #   exact task only (docs/configuration.md "Runtime backend" owns when that flag
 #   is authorized). Without it, the script resolves FM_BACKEND, then
 #   config/backend, then runtime auto-detection from the runtime firstmate's
-#   environment: $TMUX, HERDR_ENV=1, or cmux runtime signals (via
-#   bin/fm-backend.sh's fm_backend_detect, with cmux fallback details in
+#   environment: $TMUX, HERDR_ENV=1, HC_TERMINAL_ID, or cmux runtime signals
+#   (via bin/fm-backend.sh's fm_backend_detect, with cmux fallback details in
 #   docs/cmux-backend.md),
 #   then tmux.
 #   Spawn-capable backends are the reference tmux adapter, verified herdr
-#   adapter, and experimental zellij, orca, and cmux adapters. Orca owns both
-#   the task worktree and terminal, so ship/scout Orca spawns do not run
-#   treehouse get; cmux is a session provider only, exactly like herdr/zellij,
-#   so it does. Auto-detected herdr stays silent like tmux; auto-detected cmux
-#   prints a loud stderr notice; zellij and orca are never auto-detected.
+#   adapter, and experimental zellij, orca, cmux, and herdr-core adapters. Orca
+#   owns both the task worktree and terminal, so ship/scout Orca spawns do not
+#   run treehouse get; cmux and herdr-core are session providers only, exactly
+#   like herdr/zellij, so they do. Auto-detected herdr stays silent like tmux;
+#   auto-detected cmux and herdr-core print a loud stderr notice; zellij and
+#   orca are never auto-detected.
 #   codex-app is not a known backend yet; docs/codex-app-backend.md owns that
 #   blocked backend contract. Default tmux spawns do not write backend= to meta;
-#   absent backend= means tmux. cmux does not support --secondmate spawns yet.
+#   absent backend= means tmux. cmux and herdr-core do not support --secondmate
+#   spawns yet.
 #   A backend spawn refusal (missing dependency, version gate, unauthenticated
 #   socket, or unsupported secondmate mode) is terminal for that selected backend;
 #   callers must surface it instead of silently retrying another backend.
@@ -1950,6 +1953,10 @@ if [ "$RELAUNCH" -eq 0 ]; then
     echo "error: backend=cmux does not support --secondmate spawns yet" >&2
     exit 1
   fi
+  if [ "$BACKEND" = herdr-core ] && [ "$KIND" = secondmate ]; then
+    echo "error: backend=herdr-core does not support --secondmate spawns yet" >&2
+    exit 1
+  fi
   if [ "$BACKEND" = orca ]; then
     fm_backend_orca_runtime_check || exit 1
     ORCA_LAUNCH_ENV_ENABLED=$(fm_config_source_present "$CONFIG/launch-env-tmux-session") || exit 1
@@ -2022,8 +2029,20 @@ if [ "$RELAUNCH" -eq 1 ]; then
   RELAUNCH_TARGET=$FM_BACKEND_VALIDATED_TARGET
   fm_backend_validate_spawn "$BACKEND" || exit 1
   fm_backend_source "$BACKEND" || exit 1
+  if [ "$BACKEND" = herdr-core ]; then
+    RELAUNCH_FINISHED_RC=0
+    fm_backend_herdr_core_remove_finished "$RELAUNCH_TARGET" "fm-$ID" || RELAUNCH_FINISHED_RC=$?
+    case "$RELAUNCH_FINISHED_RC" in
+      0) RELAUNCH_REBIND=1 ;;
+      1) ;;
+      *)
+        echo "error: task $ID's finished herdr-core terminal could not be removed; refusing to relaunch" >&2
+        exit 1
+        ;;
+    esac
+  fi
   # A relaunch must PROVE the previous agent is gone before it launches another
-  # one into the same endpoint, and only tmux and herdr have a recovery-grade
+  # one into the same endpoint, and only tmux, herdr, and herdr-core have a recovery-grade
   # classifier that can (bin/fm-control-lib.sh owns that capability table).
   fm_control_backend_state_verified "$BACKEND" || {
     echo "error: backend '$BACKEND' has no recovery-grade agent-state classifier, so a relaunch cannot prove the previous agent exited; refusing rather than risking two agents in one endpoint" >&2
@@ -2041,12 +2060,16 @@ if [ "$RELAUNCH" -eq 1 ]; then
   # endpoint was DESTROYED" with "the endpoint is UNREACHABLE from here right
   # now", and an unreachable endpoint can still hold the live agent this
   # relaunch would duplicate. So absence is PROVEN before it may rebind, never
-  # inferred from a failed read - and only HERDR can prove it:
+  # inferred from a failed read - and only Herdr and herdr-core can prove it:
   #   herdr - the recorded session's server is started, and the recorded pane is
   #           RE-READ through that session's own socket. `dead` means the pane
   #           survived the restart and is adopted after all; `alive` means the
   #           agent came back and refuses; only a second `missing` proves the
   #           pane itself did not survive.
+  #   herdr-core - the recorded core is started, and the recorded terminal is
+  #           re-read through its own socket. `dead` means the terminal
+  #           survived and is adopted; only a second `missing` proves it did
+  #           not survive.
   #   tmux  - REFUSES, always. A task record carries no socket identity for its
   #           endpoint, and a server-wide inventory describes only the server
   #           this process addresses, so no read available here can tell "gone"
@@ -2129,6 +2152,10 @@ if [ "$RELAUNCH" -eq 1 ]; then
     HERDR_WORKSPACE_ID=$(fm_meta_get "$RELAUNCH_META" herdr_workspace_id)
     HERDR_TAB_ID=$(fm_meta_get "$RELAUNCH_META" herdr_tab_id)
     HERDR_PANE_ID=$(fm_meta_get "$RELAUNCH_META" herdr_pane_id)
+  fi
+  if [ "$BACKEND" = herdr-core ]; then
+    HERDR_CORE_SES=$(fm_meta_get "$RELAUNCH_META" herdr_core_session)
+    HERDR_CORE_TERMINAL=$(fm_meta_get "$RELAUNCH_META" herdr_core_terminal)
   fi
   # With no explicit harness, a relaunch reuses the harness already recorded
   # for this task. It must NOT fall through to the fresh-spawn config
@@ -4043,6 +4070,18 @@ if [ "$RELAUNCH" -eq 1 ]; then
     T=$RELAUNCH_TARGET
     WT_TARGET=$T
     SES=${T%%:*}
+  elif [ "$BACKEND" = herdr-core ]; then
+    # The recorded terminal is proven gone from the recorded session's core
+    # (fm_control_endpoint_absence_verdict), so create ONE fresh terminal for
+    # the same task in that session, opened directly in the recorded worktree.
+    fm_backend_herdr_core_version_check || exit 1
+    HERDR_CORE_TASK_IDS=$(fm_backend_herdr_core_create_task "$W" "$WT" "${RELAUNCH_TARGET%%:*}") || exit 1
+    read -r HERDR_CORE_SES HERDR_CORE_TERMINAL <<EOF
+$HERDR_CORE_TASK_IDS
+EOF
+    T="$HERDR_CORE_SES:$HERDR_CORE_TERMINAL"
+    SES=$HERDR_CORE_SES
+    WT_TARGET=$T
   else
     # The recorded endpoint is authoritatively gone, so there is nothing to
     # adopt: create ONE fresh endpoint for the same task, opened directly in the
@@ -4051,10 +4090,11 @@ if [ "$RELAUNCH" -eq 1 ]; then
     # worktree, armed poll and status log are untouched.
     #
     # Herdr is the ONLY backend that reaches here: the gate above rebinds only
-    # on a PROVEN-gone endpoint, and absence is provable only on herdr, whose
-    # every read is scoped to the session the record names
-    # (fm_control_endpoint_absence_verdict owns that argument). tmux and every
-    # secondmate were already refused, so there is no dispatch left to make.
+    # on a PROVEN-gone endpoint, and absence is provable only on herdr and
+    # herdr-core (handled above), whose every read is scoped to the session
+    # the record names (fm_control_endpoint_absence_verdict owns that
+    # argument). tmux and every secondmate were already refused, so there is
+    # no dispatch left to make.
     #
     # This deliberately uses the FLAT container shape rather than Herdr's
     # presentation projection: projection is a presentation-only layout that is
@@ -4355,6 +4395,18 @@ EOF
     fi
     T="$CMUX_WORKSPACE_ID:$CMUX_SURFACE_ID"
     ;;
+  herdr-core)
+    fm_backend_herdr_core_version_check || exit 1
+    HERDR_CORE_TASK_IDS=$(fm_backend_herdr_core_create_task "$W" "$PROJ_ABS") || exit 1
+    read -r HERDR_CORE_SES HERDR_CORE_TERMINAL <<EOF
+$HERDR_CORE_TASK_IDS
+EOF
+    if [ -z "$HERDR_CORE_SES" ] || [ -z "$HERDR_CORE_TERMINAL" ]; then
+      echo "error: herdr-core did not return a terminal address for $W" >&2
+      exit 1
+    fi
+    T="$HERDR_CORE_SES:$HERDR_CORE_TERMINAL"
+    ;;
   orca)
     set +e
     ORCA_WT_RAW=$(fm_backend_orca_worktree_create "$PROJ_ABS" "$W")
@@ -4400,6 +4452,7 @@ spawn_send_text_line() { # <target> <text>
   zellij) fm_backend_zellij_send_text_line "$1" "$2" "$W" ;;
   orca) fm_backend_orca_send_text_line "$1" "$2" ;;
   cmux) fm_backend_cmux_send_text_line "$1" "$2" "$W" ;;
+  herdr-core) fm_backend_herdr_core_send_text_line "$1" "$2" "$W" ;;
   esac
 }
 spawn_current_path() { # <target>
@@ -4408,6 +4461,7 @@ spawn_current_path() { # <target>
   herdr) fm_backend_herdr_current_path "$1" ;;
   zellij) fm_backend_zellij_current_path "$1" "$W" ;;
   cmux) fm_backend_cmux_current_path "$1" "$W" ;;
+  herdr-core) fm_backend_herdr_core_current_path "$1" "$W" ;;
   esac
 }
 spawn_send_literal() { # <target> <text>
@@ -4417,6 +4471,9 @@ spawn_send_literal() { # <target> <text>
   zellij) fm_backend_zellij_send_literal "$1" "$2" "$W" ;;
   orca) fm_backend_orca_send_literal "$1" "$2" ;;
   cmux) fm_backend_cmux_send_literal "$1" "$2" "$W" ;;
+  # herdr-core has no unsubmitted-text primitive: `hc send` pastes and
+  # submits in one call, so the launch's separate Enter is skipped below.
+  herdr-core) fm_backend_herdr_core_send_text_line "$1" "$2" "$W" ;;
   esac
 }
 spawn_send_key() { # <target> <key>
@@ -4426,6 +4483,7 @@ spawn_send_key() { # <target> <key>
   zellij) fm_backend_zellij_send_key "$1" "$2" "$W" ;;
   orca) fm_backend_orca_send_key "$1" "$2" ;;
   cmux) fm_backend_cmux_send_key "$1" "$2" "$W" ;;
+  herdr-core) fm_backend_herdr_core_send_key "$1" "$2" "$W" ;;
   esac
 }
 
@@ -5560,7 +5618,7 @@ SPAWN_META_PATH=$SPAWN_META_TMP
 preserve_relaunch_meta() {
   awk -F= '
     BEGIN {
-      split("window endpoint_task_id worktree project harness kind mode yolo branch tasktmp base_branch upstream_consent forge backup_remote backup_prefix model effort account account_provider busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
+      split("window endpoint_task_id worktree project harness kind mode yolo branch tasktmp base_branch upstream_consent forge backup_remote backup_prefix model effort account account_provider busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id herdr_core_session herdr_core_terminal home projects control_relaunch_tx", keys, " ")
       for (i in keys) owned[keys[i]] = 1
     }
     !($1 in owned)
@@ -5614,6 +5672,10 @@ preserve_relaunch_meta() {
   if [ "$BACKEND" = cmux ]; then
     echo "cmux_workspace_id=$CMUX_WORKSPACE_ID"
     echo "cmux_surface_id=$CMUX_SURFACE_ID"
+  fi
+  if [ "$BACKEND" = herdr-core ]; then
+    echo "herdr_core_session=$HERDR_CORE_SES"
+    echo "herdr_core_terminal=$HERDR_CORE_TERMINAL"
   fi
   if [ "$KIND" = secondmate ]; then
     echo "home=$PROJ_ABS"
@@ -6142,7 +6204,7 @@ if [ "${HERDR_PROJECTED:-0}" -eq 1 ]; then
   HERDR_PROJECTION_ABORT_CLEANUP=0
   spawn_herdr_presentation_order_lock_release
 fi
-if ! spawn_send_key "$T" Enter; then
+if [ "$BACKEND" != herdr-core ] && ! spawn_send_key "$T" Enter; then
   [ "$ORCA_LAUNCH_ENV_ENABLED" != 1 ] || spawn_orca_launch_send_fail
   exit 1
 fi

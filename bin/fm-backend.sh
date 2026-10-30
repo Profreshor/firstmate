@@ -34,7 +34,7 @@
 # treats that as `tmux` (fm_backend_of_meta), and fm-spawn.sh does not write
 # `backend=tmux` for a default-backend task, so existing and newly spawned
 # default-path metas stay byte-identical. Only a task spawned on a non-tmux
-# spawn-capable backend, currently herdr, zellij, orca, or cmux, carries an
+# spawn-capable backend, currently herdr, zellij, orca, cmux, or herdr-core, carries an
 # explicit `backend=` line.
 #
 # Event-source framing (herdr-addendum "Events as the core abstraction"): a
@@ -66,9 +66,11 @@ FM_BACKEND_CONFIG_DIR="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 # spawn-capable; unlike tmux/herdr/zellij it is also the worktree provider.
 # cmux is EXPERIMENTAL and spawn-capable, session-provider-only like
 # herdr/zellij - verified against the real 0.64.17 binary (docs/cmux-backend.md).
+# herdr-core is EXPERIMENTAL and spawn-capable, session-provider-only - verified
+# against the real hc 0.1.13 binary (docs/herdr-core-backend.md).
 # codex-app remains deliberately absent; see docs/codex-app-backend.md.
-FM_BACKEND_KNOWN="tmux herdr zellij orca cmux"
-FM_BACKEND_SPAWN="tmux herdr zellij orca cmux"
+FM_BACKEND_KNOWN="tmux herdr zellij orca cmux herdr-core"
+FM_BACKEND_SPAWN="tmux herdr zellij orca cmux herdr-core"
 
 # fm_backend_list_contains: whitespace-delimited membership without relying on
 # shell word splitting. fm-backend.sh is normally sourced by bash scripts, but
@@ -133,9 +135,17 @@ fm_backend_is_known() {  # <name>
 #      scrubbed entirely (no bundle id to inherit); NOT usable from inside
 #      tmux, where the tmux server reparents to launchd and the chain never
 #      reaches cmux - which is fine, because $TMUX already won there.
+# herdr-core injects HC_TERMINAL_ID (plus HC_TERMINAL_SOCKET) into every
+# terminal its core runs, and its terminals inherit the CORE's environment, not
+# the caller's. A core auto-started from inside a herdr pane therefore carries
+# HERDR_ENV=1 into every hc terminal, while herdr started inside an hc terminal
+# also carries both markers. When both are present the first herdr or
+# herdr-core process in this process's ancestry is the innermost layer and wins
+# (docs/herdr-core-backend.md "Runtime detection"); an inconclusive walk keeps
+# herdr's established precedence. Like cmux, herdr-core is checked after tmux.
 # Callers needing the winning signal read FM_BACKEND_DETECT_SIGNAL (set to
-# TMUX, HERDR_ENV, CMUX_WORKSPACE_ID, bundle-id, or ancestry) and
-# FM_BACKEND_DETECTED after a direct (non-command-substitution) call.
+# TMUX, HERDR_ENV, HC_TERMINAL_ID, CMUX_WORKSPACE_ID, bundle-id, or ancestry)
+# and FM_BACKEND_DETECTED after a direct (non-command-substitution) call.
 FM_BACKEND_CMUX_BUNDLE_ID="com.cmuxterm.app"
 
 fm_backend_detect() {
@@ -145,6 +155,13 @@ fm_backend_detect() {
     FM_BACKEND_DETECTED=tmux
     FM_BACKEND_DETECT_SIGNAL=TMUX
     printf 'tmux'
+    return 0
+  fi
+  if [ -n "${HC_TERMINAL_ID:-}" ] \
+    && { [ "${HERDR_ENV:-}" != "1" ] || [ "$(fm_backend_detect_herdr_innermost)" = herdr-core ]; }; then
+    FM_BACKEND_DETECTED=herdr-core
+    FM_BACKEND_DETECT_SIGNAL=HC_TERMINAL_ID
+    printf 'herdr-core'
     return 0
   fi
   if [ "${HERDR_ENV:-}" = "1" ]; then
@@ -165,6 +182,26 @@ fm_backend_detect() {
     return 0
   fi
   return 1
+}
+
+# fm_backend_detect_herdr_innermost: herdr or herdr-core, whichever process
+# comes first in this process's ancestry, or nothing when neither is found.
+fm_backend_detect_herdr_innermost() {
+  local pid=$$ ppid comm hops=0
+  while [ "$hops" -lt 32 ]; do
+    comm=$(ps -o comm= -p "$pid" 2>/dev/null) || return 0
+    comm="${comm#"${comm%%[![:space:]]*}"}"
+    comm="${comm%"${comm##*[![:space:]]}"}"
+    case "${comm##*/}" in
+      herdr-core) printf 'herdr-core'; return 0 ;;
+      herdr) printf 'herdr'; return 0 ;;
+    esac
+    ppid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d '[:space:]')
+    case "$ppid" in ''|*[!0-9]*) return 0 ;; esac
+    [ "$ppid" -gt 1 ] || return 0
+    pid=$ppid
+    hops=$((hops + 1))
+  done
 }
 
 # fm_backend_detect_cmux_fallback: the two macOS-only cmux fallback signals
@@ -235,8 +272,9 @@ fm_backend_detect_cmux_app_is_ancestor() {
 # per-task `--backend` flag is parsed by the caller (fm-spawn.sh) and takes
 # precedence over this resolution entirely; it is not read here. Auto-detect
 # fires only when nothing was explicitly configured, so an explicit setting
-# always wins. Auto-detected herdr stays silent like tmux. Selecting cmux via
-# auto-detect prints one loud stderr notice because cmux remains experimental;
+# always wins. Auto-detected herdr stays silent like tmux. Selecting cmux or
+# herdr-core via auto-detect prints one loud stderr notice because both remain
+# experimental;
 # the notice names the winning signal, so a fallback-detected cmux (bundle id or
 # ancestry, after the claude wrapper stripped CMUX_WORKSPACE_ID) is visibly
 # distinct from the primary-marker case.
@@ -267,6 +305,9 @@ fm_backend_name() {
       esac
       echo "NOTICE: auto-detected cmux runtime ($marker) - spawning into the EXPERIMENTAL cmux backend. Set config/backend or pass --backend tmux to opt out." >&2
     fi
+    if [ "$detected" = herdr-core ]; then
+      echo "NOTICE: auto-detected herdr-core runtime (HC_TERMINAL_ID) - spawning into the EXPERIMENTAL herdr-core backend. Set config/backend or pass --backend tmux to opt out." >&2
+    fi
     printf '%s' "$detected"
     return 0
   fi
@@ -296,12 +337,13 @@ fm_backend_validate_spawn() {  # <name>
 # docs/configuration.md "Toolchain" and bootstrap's COMMON list). This is the
 # single owner of the per-backend dependency delta, so bootstrap follows the
 # RESOLVED backend instead of demanding an inactive backend's tools. Each set is:
-#   - the session-provider CLI itself (tmux/herdr/zellij/orca/cmux);
-#   - jq, for the JSON-emitting adapters (herdr, zellij, cmux) whose spawn/liveness
+#   - the session-provider CLI itself (tmux/herdr/zellij/orca/cmux, and hc for
+#     herdr-core);
+#   - jq, for the JSON-emitting adapters (herdr, zellij, cmux, herdr-core) whose spawn/liveness
 #     paths parse the backend's JSON output (see each adapter's
 #     tool check, e.g. fm_backend_herdr_tool_check);
 #   - the treehouse worktree provider for every session-provider-only backend
-#     (tmux, herdr, zellij, cmux); orca owns its own task worktree and terminal,
+#     (tmux, herdr, zellij, cmux, herdr-core); orca owns its own task worktree and terminal,
 #     so it drops both treehouse and any other backend's session CLI.
 # Prints a single space-separated line and returns 0 for a known backend; returns
 # 1 and prints nothing for an unknown backend.
@@ -311,6 +353,7 @@ fm_backend_required_tools() {  # <backend>
     herdr)  printf '%s' 'herdr jq treehouse' ;;
     zellij) printf '%s' 'zellij jq treehouse' ;;
     cmux)   printf '%s' 'cmux jq treehouse' ;;
+    herdr-core) printf '%s' 'hc jq treehouse' ;;
     orca)   printf '%s' 'orca' ;;
     *) return 1 ;;
   esac
@@ -406,7 +449,7 @@ fm_backend_orca_worktree_id_valid() {  # <value>
 
 fm_backend_validate_task_endpoint() {  # <meta-file> <task-id>
   local meta=$1 id=$2 backend_count backend window worktree project binding_count binding
-  local session pane recorded_session workspace tab terminal worktree_id surface
+  local session pane recorded_session workspace tab terminal worktree_id surface address
   FM_BACKEND_VALIDATED_BACKEND=
   FM_BACKEND_VALIDATED_TARGET=
   [ -f "$meta" ] && [ ! -L "$meta" ] || {
@@ -544,6 +587,20 @@ fm_backend_validate_task_endpoint() {  # <meta-file> <task-id>
         return 1
       fi
       ;;
+    herdr-core)
+      [ "$binding" = "$id" ] || {
+        echo "REFUSED: herdr-core endpoint metadata for task $id lacks an exact task binding; preserving task state." >&2
+        return 1
+      }
+      recorded_session=$(fm_backend_meta_exact_value "$meta" herdr_core_session) || recorded_session=
+      address=$(fm_backend_meta_exact_value "$meta" herdr_core_terminal) || address=
+      if [ -z "$recorded_session" ] || [ -z "$address" ] || [ "$window" != "$recorded_session:$address" ] \
+        || ! fm_backend_endpoint_atom_valid "$recorded_session" \
+        || ! fm_backend_endpoint_atom_valid "$address"; then
+        echo "REFUSED: herdr-core endpoint metadata for task $id is malformed or inconsistent; preserving task state." >&2
+        return 1
+      fi
+      ;;
   esac
   # shellcheck disable=SC2034 # Output globals are consumed by sourcing callers.
   FM_BACKEND_VALIDATED_BACKEND=$backend
@@ -643,6 +700,9 @@ fm_backend_source() {  # <name>
     cmux)
       set -- fm-backend-hometag-lib.sh fm-composer-lib.sh
       ;;
+    herdr-core)
+      set -- fm-backend-hometag-lib.sh fm-composer-lib.sh fm-agent-process-lib.sh fm-session-lock-lib.sh fm-gemini-lib.sh
+      ;;
     *)
       return 1
       ;;
@@ -686,6 +746,13 @@ fm_backend_source() {  # <name>
         # shellcheck source=/dev/null
         . "$adapter" || return 1
         _FM_BACKEND_CMUX_SOURCED=1
+      fi
+      ;;
+    herdr-core)
+      if [ -z "${_FM_BACKEND_HERDR_CORE_SOURCED:-}" ]; then
+        # shellcheck source=/dev/null
+        . "$adapter" || return 1
+        _FM_BACKEND_HERDR_CORE_SOURCED=1
       fi
       ;;
   esac
@@ -759,6 +826,7 @@ fm_backend_capture() {  # <backend> <target> <lines> [expected-label]
     zellij) fm_backend_zellij_capture "$@" ;;
     orca) fm_backend_orca_capture "$@" ;;
     cmux) fm_backend_cmux_capture "$@" ;;
+    herdr-core) fm_backend_herdr_core_capture "$@" ;;
     *) echo "error: no capture implementation for backend '$backend'" >&2; return 1 ;;
   esac
 }
@@ -769,8 +837,9 @@ fm_backend_capture() {  # <backend> <target> <lines> [expected-label]
 # pending live verification: its `read-screen` without `--scrollback` plausibly
 # reads only the viewport, but that has not been observed on a real cmux, and
 # the adapter's own capture opts into history with `--scrollback`. orca's
-# `terminal read --limit` is a history read with no viewport mode.
-FM_BACKEND_VISIBLE_CAPTURE="tmux herdr zellij"
+# `terminal read --limit` is a history read with no viewport mode. herdr-core's
+# `hc read --lines 0` reads the screen with zero history lines.
+FM_BACKEND_VISIBLE_CAPTURE="tmux herdr zellij herdr-core"
 
 # fm_backend_visible_capture_supported: whether <backend> can read the visible
 # viewport WITHOUT scrollback. Callers that must not mistake a scrolled-away
@@ -790,7 +859,7 @@ fm_backend_visible_capture() {  # <backend> <target> [expected-label]
     return 1
   }
   fm_backend_source "$backend" || return 1
-  "fm_backend_${backend}_visible_capture" "$@"
+  "fm_backend_${backend//-/_}_visible_capture" "$@"
 }
 
 # fm_backend_send_key: one backend-supported named special key.
@@ -804,6 +873,7 @@ fm_backend_send_key() {  # <backend> <target> <key> [expected-label]
     zellij) fm_backend_zellij_send_key "$@" ;;
     orca) fm_backend_orca_send_key "$@" ;;
     cmux) fm_backend_cmux_send_key "$@" ;;
+    herdr-core) fm_backend_herdr_core_send_key "$@" ;;
     *) echo "error: no send-key implementation for backend '$backend'" >&2; return 1 ;;
   esac
 }
@@ -844,6 +914,7 @@ fm_backend_send_text_submit() {  # <backend> <target> <text> <retries> <enter-sl
     zellij) fm_backend_zellij_send_text_submit "$@" || rc=$? ;;
     orca) fm_backend_orca_send_text_submit "$@" || rc=$? ;;
     cmux) fm_backend_cmux_send_text_submit "$@" || rc=$? ;;
+    herdr-core) fm_backend_herdr_core_send_text_submit "$@" || rc=$? ;;
     *) echo "error: no send-text implementation for backend '$backend'" >&2; rc=1 ;;
   esac
   fm_composer_dialog_sink_release
@@ -873,6 +944,7 @@ fm_backend_kill() {  # <backend> <target>
     zellij) fm_backend_zellij_kill "$@" ;;
     orca) fm_backend_orca_kill "$@" ;;
     cmux) fm_backend_cmux_kill "$@" ;;
+    herdr-core) fm_backend_herdr_core_kill "$@" ;;
     *) echo "error: no kill implementation for backend '$backend'" >&2; return 1 ;;
   esac
 }
@@ -910,6 +982,7 @@ fm_backend_busy_state() {  # <backend> <target>
   fm_backend_source "$backend" || { printf 'unknown'; return 0; }
   case "$backend" in
     herdr) fm_backend_herdr_busy_state "$@" ;;
+    herdr-core) fm_backend_herdr_core_busy_state "$@" ;;
     *) printf 'unknown' ;;
   esac
 }
@@ -936,6 +1009,7 @@ fm_backend_composer_state() {  # <backend> <target> [expected-label] -> empty|pe
     orca) fm_backend_orca_composer_state "$@" ;;
     cmux) fm_backend_cmux_composer_state "$@" ;;
     zellij) fm_backend_zellij_composer_state "$@" ;;
+    herdr-core) fm_backend_herdr_core_composer_state "$@" ;;
     *) printf 'unknown' ;;
   esac
 }
@@ -985,6 +1059,10 @@ fm_backend_target_exists() {  # <backend> <target> [expected-label]
       fm_backend_source cmux || return 1
       fm_backend_cmux_target_ready "$target" "$expected_label"
       ;;
+    herdr-core)
+      fm_backend_source herdr-core || return 1
+      fm_backend_herdr_core_target_ready "$target" "$expected_label"
+      ;;
     *)
       return 1
       ;;
@@ -1008,15 +1086,19 @@ fm_backend_target_exists() {  # <backend> <target> [expected-label]
 # which verifies a registered agent against `pane process-info` and the real
 # process table, so a registration Herdr kept over a shell-only pane reads
 # `dead` here (issue #4115) - then maps a positively stopped session server to
-# `missing` only in this recovery-grade view. Zellij remains unverified because
+# `missing` only in this recovery-grade view. The herdr-core adapter classifies
+# hc's reported foreground process through the same shared classifier and reads
+# `missing` only when the recorded session's core reports this home's terminal
+# absent. Zellij remains unverified because
 # its secondmate ghost-tab and agent-process recovery path has not been
-# empirically validated. Orca and cmux do not support secondmate spawns.
+# empirically validated. Orca, cmux, and herdr-core do not support secondmate spawns.
 fm_backend_agent_state() {  # <backend> <target>
   local backend=$1 target=$2
   fm_backend_source "$backend" || { printf 'unverified'; return 0; }
   case "$backend" in
     tmux) fm_backend_tmux_agent_state "$target" ;;
     herdr) fm_backend_herdr_agent_state "$target" ;;
+    herdr-core) fm_backend_herdr_core_agent_state "$target" ;;
     *) printf 'unverified' ;;
   esac
 }

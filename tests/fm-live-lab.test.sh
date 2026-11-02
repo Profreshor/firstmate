@@ -713,7 +713,7 @@ U="$TMP_ROOT/up-lab"
 node -e '
 const fs = require("node:fs");
 const [store, key, ready, out] = process.argv.slice(1);
-const end = Date.now() + 120000;
+let attempts = 1200;
 fs.writeFileSync(ready, "");
 const tick = () => {
   let root = null;
@@ -726,14 +726,18 @@ const tick = () => {
     fs.writeFileSync(out, "dropped\n");
     return;
   }
-  if (Date.now() > end) process.exit(1);
+  if (--attempts === 0) process.exit(1);
   setTimeout(tick, 10);
 };
 tick();
 ' "$HOME/.claude.json" "$U/home" "$TMP_ROOT/rival-ready" "$TMP_ROOT/rival-dropped" &
 RIVAL=$!
 printf '%s\n' "$RIVAL" >> "$TMP_ROOT/pids"
-until [ -e "$TMP_ROOT/rival-ready" ] || ! kill -0 "$RIVAL" 2>/dev/null; do sleep 0.05; done
+for (( attempt=0; attempt<100; attempt++ )); do
+  [ -e "$TMP_ROOT/rival-ready" ] && break
+  ! kill -0 "$RIVAL" 2>/dev/null && break
+  sleep 0.05
+done
 [ -e "$TMP_ROOT/rival-ready" ] || fail "the rival Claude writer never started"
 out=$(SHELL=/bin/sh PATH="$FAKEBIN:$PATH" "$LIVE_LAB" up --harness claude --source "$UPSRC" --ref HEAD --timeout 1 "$U" 2>&1)
 expect_code 1 "$?" "stand-in primary does not answer probe"

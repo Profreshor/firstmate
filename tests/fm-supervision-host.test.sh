@@ -2052,7 +2052,8 @@ test_attended_latch_keeps_closes_on_main_and_records_recovery_off_main() {
   end_cooldown "$home"
   park_again "$home"
   append_status "$home" 'the probe fails'
-  wait_until 250 host_exited "$home" || fail "latch: the failed probe did not hand the wake back"
+  wait_until 250 host_exited "$home" \
+    || fail "latch: the failed probe did not hand the wake back: engine_calls=$(engine_calls "$home") watcher_live=$(watcher_live "$home" && echo yes || echo no) health=$(tr '\n' ' ' < "$home/state/.supervision-host-health" 2>/dev/null) host=$(cat "$home/host.out" 2>/dev/null) ledger=$(tail -n 5 "$home/state/.supervision-host.log" 2>/dev/null)"
   [ "$(engine_calls "$home")" -eq 3 ] || fail "the cooldown's end did not let one wake probe the engine"
   assert_no_re 'paused' "$home/host.out" "a failed probe must not repeat the trip line"
   assert_grep 'cooldown=600' "$home/state/.supervision-host-health" "a failed probe must double the cooldown"

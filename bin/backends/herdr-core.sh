@@ -213,7 +213,7 @@ fm_backend_herdr_core_current_path() {  # <target> [expected-label]
 # #1: one hc call does both). Refuses a terminal blocked at a prompt.
 fm_backend_herdr_core_send_text_line() {  # <target> <text> [expected-label]
   fm_backend_herdr_core_target_ready "$1" "${3:-}" || return 1
-  fm_backend_herdr_core_cli "$FM_BACKEND_HERDR_CORE_SESSION" send "$FM_BACKEND_HERDR_CORE_ADDRESS" "$2" --json >/dev/null 2>&1
+  env -u HC_TERMINAL_ID HC_SESSION="$FM_BACKEND_HERDR_CORE_SESSION" hc send "$FM_BACKEND_HERDR_CORE_ADDRESS" "$2" --json >/dev/null 2>&1
 }
 
 fm_backend_herdr_core_normalize_key() {  # <key>

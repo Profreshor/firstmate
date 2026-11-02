@@ -20,7 +20,9 @@ cat > "$FAKEBIN/hc" <<'PY'
 import json, os, sys
 state_path = os.environ["FM_HC_STATE"]
 with open(os.environ["FM_HC_LOG"], "a") as log:
-    log.write("HC_SESSION=%s\x1f%s\n" % (os.environ.get("HC_SESSION", ""), "\x1f".join(sys.argv[1:])))
+    log.write("HC_SESSION=%s HC_TERMINAL_ID=%s HC_SCOPE=%s\x1f%s\n" %
+              (os.environ.get("HC_SESSION", ""), os.environ.get("HC_TERMINAL_ID", ""),
+               os.environ.get("HC_SCOPE", ""), "\x1f".join(sys.argv[1:])))
 args = [a for a in sys.argv[1:] if a != "--json"]
 if args[:1] == ["--version"]:
     print("hc " + os.environ.get("FM_HC_FAKE_VERSION", "0.1.13")); sys.exit(0)
@@ -259,12 +261,14 @@ HELD_BOX='  ╭─────────────────────�
 
 test_send_text_submit() {
   reset_hc
-  local target verdict
+  local target verdict send_log
   target=$(new_task t1)
   set_terminal t2 ".screen = \"$EMPTY_BOX\" | .after_send = [\"$EMPTY_BOX\"]"
-  verdict=$(fm_backend_send_text_submit herdr-core "$target" "hello world" 2 0 0 fm-t1)
+  verdict=$(HC_TERMINAL_ID=t1 HC_SCOPE=keep fm_backend_send_text_submit herdr-core "$target" "hello world" 2 0 0 fm-t1)
   assert_equals empty "$verdict" "a landed send must verify empty"
   assert_equals '[["send","hello world"]]' "$(typed t2)" "the text must be pasted and submitted once, with no extra Enter"
+  send_log=$(grep $'\x1fsend\x1f' "$FM_HC_LOG")
+  assert_contains "$send_log" "HC_TERMINAL_ID= HC_SCOPE=keep" "text sends must omit the sender identity while preserving HC_SCOPE"
   reset_hc
   target=$(new_task t1)
   set_terminal t2 ".screen = \"$EMPTY_BOX\" | .after_send = [\"$HELD_BOX\"] | .after_keys = [\"$HELD_BOX\", \"$EMPTY_BOX\"]"

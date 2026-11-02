@@ -2212,7 +2212,6 @@ A second pass on 2026-11-02 (hc 0.1.13, Linux x86_64, Claude Code at the Haiku m
 | Status clears on exit | ending the harness process under an `sh -c` wrapper | `status` became `null` and the foreground became the interactive `zsh -i -l`, at a pid other than the terminal's own `pid`; the adapter reads `dead` |
 | App labels | `fm-spawn.sh <id> <project> --scout --backend herdr-core` | the worker carried `herdr.space=sp<hash>crew` and `herdr.tab=tb<hash>crew`, and the app then added its own `where` label to it |
 | Idle doorbell | `fm-send.sh <id> 'Live steer check: reply with the single word PINEAPPLE in chat, then wait.'` to an idle Claude and an idle Codex scout | both doorbells landed, both workers answered `PINEAPPLE` and moved the message to `handled/` |
-| Tagged sends | `fm-control.sh <id> exit` from inside an hc terminal | hc delivered `<hc from="t1g">/exit</hc>`, Claude read it as chat rather than its `/exit` command, and the exit was unconfirmed |
 
 `tests/fm-backend-herdr-core.test.sh` is the portable regression for these behaviors; repeat the end-to-end pass above after an hc upgrade to refresh this record.
 

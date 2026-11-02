@@ -69,7 +69,7 @@ Busy state comes from hc's own status, which the program reports itself; `workin
 
 - herdr-core has no way to type text without submitting it: `hc send` pastes and presses Enter in one call, and `hc keys` takes only named keys.
   A submit is therefore one `hc send` followed by Enter-only retries while the composer still holds the text, and the spawn sends its launch line the same way.
-- hc can wrap text sent from inside an hc terminal in an `<hc from="...">` tag, so a slash command such as Claude Code's `/exit` arrives as chat and `bin/fm-control.sh exit` cannot stop the worker.
+- hc uses `HC_TERMINAL_ID` as the sender identity in `<hc from="...">` wrappers; the adapter unsets it for text sends while preserving `HC_SCOPE`.
   hc's help names `notes = false` in `~/.config/herdr-core/config.toml` as the setting that disables the tag.
 - Composer reads are plain text with no cursor or identity facts, so the shared composer classifier runs in its plain-text mode, as it does for cmux.
 - `--secondmate` spawns are refused until secondmate launch semantics are designed for this backend.

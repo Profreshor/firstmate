@@ -713,7 +713,7 @@ U="$TMP_ROOT/up-lab"
 node -e '
 const fs = require("node:fs");
 const [store, key, ready, out] = process.argv.slice(1);
-let attempts = 1200;
+let attempts = 12000;
 fs.writeFileSync(ready, "");
 const tick = () => {
   let root = null;

@@ -399,8 +399,8 @@ CRASHED_WORKER_PGID=$(fm_remote_job_worker_process_group "$NEW_WORKER_PID") \
   || fail "the crash fixture could not resolve the worker's isolated process group"
 kill -KILL -- "-$CRASHED_WORKER_PGID"
 wait "$CRASHED_WORKER_PGID" 2>/dev/null || true
-CRASH_DEADLINE=$((SECONDS + 30))
-until ! kill -0 -- "-$CRASHED_WORKER_PGID" 2>/dev/null || [ "$SECONDS" -ge "$CRASH_DEADLINE" ]; do
+for (( attempt=0; attempt<600; attempt++ )); do
+  ! kill -0 -- "-$CRASHED_WORKER_PGID" 2>/dev/null && break
   sleep 0.05
 done
 ! kill -0 -- "-$CRASHED_WORKER_PGID" 2>/dev/null \

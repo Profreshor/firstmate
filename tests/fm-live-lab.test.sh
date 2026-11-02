@@ -705,18 +705,36 @@ exec sleep 45 >/dev/null 2>&1
 SH
 chmod +x "$FAKEBIN/claude"
 U="$TMP_ROOT/up-lab"
-(
-  end=$(( $(date +%s) + 120 ))
-  until node -e 'const j=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));process.exit(j.projects?.[process.argv[2]]?1:0)' "$HOME/.claude.json" "$U/home" 2>/dev/null; do
-    [ "$(date +%s)" -lt "$end" ] || exit 1
-    sleep 0.05
-  done
-  sleep 0.5
-  node -e 'const fs=require("node:fs");const [s,k]=process.argv.slice(1);const j=JSON.parse(fs.readFileSync(s,"utf8"));delete j.projects[k];fs.writeFileSync(s,JSON.stringify(j))' "$HOME/.claude.json" "$U/home"
-  echo dropped > "$TMP_ROOT/rival-dropped"
-) &
+# The rival is one already-running process that drops the primary's entry the
+# moment it first appears, well inside up's settle window, and replaces the
+# store atomically so its write is one concurrent change rather than a
+# truncate followed by a write. It records the drop only when it removed a
+# real entry, so the case cannot pass without exercising re-registration.
+node -e '
+const fs = require("node:fs");
+const [store, key, ready, out] = process.argv.slice(1);
+const end = Date.now() + 120000;
+fs.writeFileSync(ready, "");
+const tick = () => {
+  let root = null;
+  try { root = JSON.parse(fs.readFileSync(store, "utf8")); } catch { root = null; }
+  if (root?.projects?.[key]) {
+    delete root.projects[key];
+    const tmp = store + ".rival." + process.pid;
+    fs.writeFileSync(tmp, JSON.stringify(root));
+    fs.renameSync(tmp, store);
+    fs.writeFileSync(out, "dropped\n");
+    return;
+  }
+  if (Date.now() > end) process.exit(1);
+  setTimeout(tick, 10);
+};
+tick();
+' "$HOME/.claude.json" "$U/home" "$TMP_ROOT/rival-ready" "$TMP_ROOT/rival-dropped" &
 RIVAL=$!
 printf '%s\n' "$RIVAL" >> "$TMP_ROOT/pids"
+until [ -e "$TMP_ROOT/rival-ready" ] || ! kill -0 "$RIVAL" 2>/dev/null; do sleep 0.05; done
+[ -e "$TMP_ROOT/rival-ready" ] || fail "the rival Claude writer never started"
 out=$(SHELL=/bin/sh PATH="$FAKEBIN:$PATH" "$LIVE_LAB" up --harness claude --source "$UPSRC" --ref HEAD --timeout 1 "$U" 2>&1)
 expect_code 1 "$?" "stand-in primary does not answer probe"
 wait "$RIVAL" 2>/dev/null || true

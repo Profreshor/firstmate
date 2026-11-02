@@ -1422,6 +1422,12 @@ printf 'supervision-host: watcher downtime could not be restored for the main ha
 exit 1
 SH
         ;;
+      pass-through-handback)
+        cat <<'SH'
+printf 'pending:handling:fixture-generation\n' > "$FM_HOME/state/.watcher-down"
+printf 'signal: fixture.status\n'
+SH
+        ;;
       benign-refusal)
         cat <<'SH'
 printf 'acked:downtime:fixture-generation\n' > "$FM_HOME/state/.watcher-down"
@@ -1638,6 +1644,31 @@ test_host_lost_announced_handback_notifies_once_per_episode() {
   pass "auto-arm: a lost host hand-back on an announced marker notifies once per failure episode"
 }
 
+# The live failure (2026-11-02): a main-only pass-through left its successor
+# watcher healthy on purpose but handed back with the marker in handling, and
+# the hook exited 0 in silence because a watcher was live.
+test_host_lost_handback_beside_a_healthy_watcher_reaches_main() {
+  local dir out status pid identity
+  dir=$(make_primary_dir "$TMP_ROOT/host-lost-handback-healthy")
+  mkdir -p "$dir/config"
+  rm -f "$dir/config/supervision-host-off"
+  : > "$dir/state/task.meta"
+  write_host_fixture "$dir" pass-through-handback
+  sleep 60 &
+  pid=$!
+  identity=$(watcher_identity "$dir" "$pid") || fail "could not identify the left successor"
+  record_watcher_lock "$dir" "$pid" "$identity"
+  touch "$dir/state/.last-watcher-beat"
+  out=$(run_autoarm "$dir" 2>/dev/null); status=$?
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  expect_code 2 "$status" "a lost hand-back beside a healthy watcher must reach main"
+  assert_contains "$out" "auto-arm FAILED - the supervision host returned an actionable wake" "a lost hand-back must deliver the failure notice"
+  assert_contains "$out" "signal: fixture.status" "the failure notice must carry the undelivered close"
+  [ "$(epoch_outcome "$dir")" = failed ] || fail "a lost hand-back must record outcome=failed, got: $(epoch_outcome "$dir")"
+  pass "auto-arm: a lost host hand-back beside a healthy watcher reaches main instead of exiting 0"
+}
+
 test_host_crash_is_retried_then_reported() {
   local dir out status
   dir=$(make_primary_dir "$TMP_ROOT/host-crash")
@@ -1763,6 +1794,7 @@ test_host_stand_down_is_silent
 test_host_benign_rewake_refusal_opens_no_failure_episode
 test_host_lost_handback_notifies_once_per_episode
 test_host_lost_announced_handback_notifies_once_per_episode
+test_host_lost_handback_beside_a_healthy_watcher_reaches_main
 test_host_crash_is_retried_then_reported
 test_arguments_never_arm
 test_fm_lock_status_still_works_with_shared_lib

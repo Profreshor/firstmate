@@ -1095,7 +1095,16 @@ while :; do
     if ! attended_acceptor "$(printf '%s\n' "$REASON" | head -n 1)"; then
       log_line "pass-through	attended	$ATTENDED_WHY	$(printf '%s\n' "$REASON" | head -n 1)"
       if [ "$ATTENDED_WHY" = main-only ]; then
+        # An earlier handled turn's confirmed handoff can still hold the marker
+        # in handling when its successor closed before the confirmation landed;
+        # the re-arm owner delivers this close only on downtime.
+        PRIOR_HANDOFF=$SUCCESSOR_GENERATION
         leave_successor_for_main || true
+        if [ -n "$PRIOR_HANDOFF" ] \
+          && ! fm_recovery_marker_publish "$STATE/.watcher-down" downtime >/dev/null 2>&1; then
+          log_line "pass-through	downtime-unrestored	$(printf '%s\n' "$REASON" | head -n 1)"
+          exit 1
+        fi
       fi
       emit
       exit 0

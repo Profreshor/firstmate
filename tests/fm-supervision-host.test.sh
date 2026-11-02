@@ -1048,6 +1048,37 @@ test_main_only_pass_through_leaves_the_successor_watcher_running() {
   pass "host: a main-only pass-through leaves the successor watcher running and the close undelivered for main"
 }
 
+# The live failure (2026-10-30 and 2026-11-02): a handled turn's successor
+# closed before its handling handoff was confirmed, so the marker was left in
+# handling; the next close, main-only, then passed through without restoring
+# downtime and main's re-arm owner refused to deliver it.
+test_main_only_pass_through_after_a_handled_turn_restores_downtime() {
+  local home successor
+  home=$(make_home main-only-after-handoff attended)
+  echo held > "$home/stub-mode"
+  mkfifo "$home/stub-release"
+  start_host "$home"
+  wait_until 150 watcher_live "$home" || fail "after handoff: the host never started a watcher cycle"
+  append_status "$home" 'step one'
+  wait_until 250 test -s "$home/stub-ready" || fail "after handoff: the engine did not reach its hold: $(cat "$home/state/.supervision-host.log")"
+  successor=$(cat "$home/state/.watch.lock/pid")
+  append_status "$home" 'which export format?' needs-decision
+  wait_until 250 bash -c '! kill -0 "$1" 2>/dev/null' _ "$successor" \
+    || fail "after handoff: the successor did not close during the engine turn"
+  FM_HOME="$home" bash -c '. "$1"; fm_recovery_marker_begin_handling "$2"' _ \
+    "$ROOT/bin/fm-wake-lib.sh" "$home/state/.watcher-down" \
+    || fail "fixture: could not model the handoff confirmation landing after the successor's close"
+  [ "$(marker_kind "$home")" = handling ] || fail "fixture: the marker must read handling before the pass-through"
+  printf 'continue\n' > "$home/stub-release"
+  wait_until 250 host_exited "$home" || fail "after handoff: the decision close did not reach main: $(cat "$home/state/.supervision-host.log")"
+  expect_code 0 "$(cat "$home/host.rc")" "a main-only close must exit 0"
+  assert_re '	pass-through	attended	main-only	signal:' "$home/state/.supervision-host.log" "fixture: the close was not a main-only pass-through"
+  [ "$(marker_kind "$home")" = downtime ] \
+    || fail "after handoff: the pass-through left the marker in handling, so main's re-arm owner would not deliver it: $(cat "$home/state/.watcher-down")"
+  stop_home_processes "$home"
+  pass "host: a main-only pass-through after a handled turn's handoff restores downtime for main's re-arm owner"
+}
+
 # The session-lock holder's process identity cannot be read (its proc entry
 # is truncated), so no main-session key exists: the close reaches main exactly
 # as the arm printed it, before any mirror feed or engine turn.
@@ -2982,6 +3013,7 @@ test_quiet_record_without_its_daemon_is_a_present_captain
 test_attended_main_only_close_passes_straight_to_main
 test_off_written_while_parked_passes_the_next_attended_close_to_main
 test_main_only_pass_through_leaves_the_successor_watcher_running
+test_main_only_pass_through_after_a_handled_turn_restores_downtime
 test_attended_close_with_unidentified_main_session_passes_to_main
 test_close_accepted_away_that_turns_attended_passes_to_main
 test_attended_close_that_turns_main_only_before_its_turn_passes_to_main

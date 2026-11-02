@@ -206,8 +206,12 @@ test_agent_state() {
   assert_equals ambiguous "$(fm_backend_herdr_core_agent_state "$target")" "a wrapper whose harness has not reported is not proven agent-free"
   set_terminal t2 '.status = {app: "some-tool", state: "idle"}'
   assert_equals ambiguous "$(fm_backend_herdr_core_agent_state "$target")" "a status naming no harness proves nothing"
-  set_terminal t2 '.foreground = {name: "zsh", argv: ["/usr/bin/zsh"], pid: 4242, cwd: "/"} | .status = {app: "codex", state: "idle"}'
-  assert_equals dead "$(fm_backend_herdr_core_agent_state "$target")" "the login shell back in front is agent-free whatever the status says"
+  set_terminal t2 '.foreground = {name: "node", argv: ["node", "/usr/bin/codex"], pid: 4246, cwd: "/"} | .status = {app: "codex", state: "idle"}'
+  assert_equals alive "$(fm_backend_herdr_core_agent_state "$target")" "a node-bundled harness is named by its status"
+  # After the spawn's worktree move the interactive login shell is not the
+  # terminal's own process, so only its shape marks the return.
+  set_terminal t2 '.foreground = {name: "zsh", argv: ["/usr/bin/zsh", "-i", "-l"], pid: 4247, cwd: "/"}'
+  assert_equals dead "$(fm_backend_herdr_core_agent_state "$target")" "an interactive shell back in front is agent-free whatever the status says"
   set_terminal t2 '.status = null | .foreground = {name: "sleep", argv: ["sleep", "5"], pid: 4244, cwd: "/"}'
   assert_equals ambiguous "$(fm_backend_herdr_core_agent_state "$target")" "an unknown program is ambiguous"
   set_terminal t2 '.state = "finished" | .foreground = null'

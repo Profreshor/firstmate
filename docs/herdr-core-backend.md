@@ -57,9 +57,10 @@ hc picks its core from `HC_SESSION`, defaulting to `default`, and addresses are 
 A new task lands in the session the spawning Firstmate addresses.
 
 Routine supervision uses `bin/fm-peek.sh <id>` and `FM_HOME=<home> bin/fm-send.sh <id> '<text>'`.
-Interrupt, exit, and relaunch run through `bin/fm-control.sh`, because herdr-core has a recovery-grade agent-state classifier: it classifies the foreground process hc reports through the same shared classifier tmux and Herdr use, reads a finished terminal or the terminal's own login shell in the foreground as agent-free, and reads `missing` only when the recorded session's core reports this home's terminal absent.
-The spawn starts the harness under an `sh -c` wrapper, which hc keeps reporting as the foreground for the agent's whole life, so a foreground other than the terminal's own program counts as the agent when the program's self-reported status names a harness, and as ambiguous when it has reported no status.
-hc clears that status when the program exits, and the login shell back in the foreground reads as agent-free whatever the status said.
+Interrupt, exit, and relaunch run through `bin/fm-control.sh`, because herdr-core has a recovery-grade agent-state classifier: it classifies the foreground process hc reports through the same shared classifier tmux and Herdr use, reads a finished terminal or an interactive shell in the foreground as agent-free, and reads `missing` only when the recorded session's core reports this home's terminal absent.
+A ship's launch runs the harness under an `sh -c` wrapper, which hc keeps reporting as the foreground for the agent's whole life, and a node-bundled harness can show as plain `node`.
+Such a foreground counts as the agent when the program's self-reported hc status names a harness, and a wrapper that has reported no status yet reads as ambiguous.
+hc clears that status when the program exits.
 A relaunch adopts a live terminal whose shell is in the foreground.
 A finished terminal is removed and replaced in its recorded session and worktree, while an absent terminal is replaced once its absence is proven.
 Busy state comes from hc's own status, which the program reports itself; `working` counts as busy only while the foreground classifies as the agent.
@@ -68,6 +69,7 @@ Busy state comes from hc's own status, which the program reports itself; `workin
 
 - herdr-core has no way to type text without submitting it: `hc send` pastes and presses Enter in one call, and `hc keys` takes only named keys.
   A submit is therefore one `hc send` followed by Enter-only retries while the composer still holds the text, and the spawn sends its launch line the same way.
+- Unless hc's `~/.config/herdr-core/config.toml` sets `notes = false`, hc wraps text sent from inside an hc terminal in an `<hc from="...">` tag, so a slash command such as Claude Code's `/exit` arrives as chat and `bin/fm-control.sh exit` cannot stop the worker.
 - Composer reads are plain text with no cursor or identity facts, so the shared composer classifier runs in its plain-text mode, as it does for cmux.
 - `--secondmate` spawns are refused until secondmate launch semantics are designed for this backend.
 - There is no native event push, so the watcher uses its ordinary poll loop.

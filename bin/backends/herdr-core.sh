@@ -294,30 +294,30 @@ fm_backend_herdr_core_send_text_submit() {  # <target> <text> <retries> <enter-s
 # terminal in FM_BACKEND_HERDR_CORE_JSON. The foreground process is what hc
 # reports; before the shell first runs anything it reports none, and the
 # terminal's own program (the shell) stands in.
-# The spawn launches the harness under an `sh -c` wrapper, so hc reports that
-# wrapper shell in the foreground for the agent's whole life. A foreground that
-# is not the terminal's own program is therefore the agent when the program's
-# self-reported status (OSC 7501, which hc clears when it exits) names a
-# harness; with no status it is `other`. The terminal's own login shell back in
-# the foreground stays `shell` whatever its status says.
+# A ship's launch runs the harness under an `sh -c` wrapper, so hc reports
+# that wrapper in the foreground for the agent's whole life, and a node-bundled
+# harness can show as plain `node`. Such a foreground - a `-c` command shell or
+# an unrecognized program - is the agent when the program's self-reported
+# status (OSC 7501, which hc clears when the program exits) names a harness;
+# a wrapper with no status yet is `other`. An interactive shell back in the
+# foreground stays `shell` whatever the status says.
 fm_backend_herdr_core_foreground_class() {
-  local fields name argv0 args pid root app class
+  local fields name argv0 args pid wrapper app class
   fields=$(printf '%s' "$FM_BACKEND_HERDR_CORE_JSON" | jq -r '
     (.foreground // {name: null, argv: .argv, pid: .pid}) as $f
     | [($f.name // ($f.argv[0] // "" | split("/") | last)), ($f.argv[0] // ""),
-       (($f.argv // []) | join(" ")), (($f.pid // "") | tostring), ((.pid // "") | tostring),
+       (($f.argv // []) | join(" ")), (($f.pid // "") | tostring),
+       (if (($f.argv // [])[1:] | index("-c")) == null then 0 else 1 end),
        (.status | if type == "object" then .app // "" else "" end)] | @tsv' 2>/dev/null) || { printf 'other'; return 0; }
-  IFS=$'\t' read -r name argv0 args pid root app <<EOF
+  IFS=$'\t' read -r name argv0 args pid wrapper app <<EOF
 $fields
 EOF
   class=$(fm_agent_process_classify "$name" "$argv0" "$args" "$pid")
-  if [ "$class" != agent ] && [ -n "$pid" ] && [ "$pid" != "$root" ]; then
-    if [ -n "$app" ] && [ "$(fm_agent_process_classify_name "$app")" = agent ]; then
-      class=agent
-    elif [ "$class" = shell ]; then
-      class=other
-    fi
+  [ "$class" = shell ] && [ "$wrapper" = 0 ] && { printf 'shell'; return 0; }
+  if [ "$class" != agent ] && [ -n "$app" ] && [ "$(fm_agent_process_classify_name "$app")" = agent ]; then
+    class=agent
   fi
+  [ "$class" != shell ] || class=other
   printf '%s' "$class"
 }
 

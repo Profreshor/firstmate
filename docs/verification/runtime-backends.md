@@ -1601,7 +1601,7 @@ ok - old path: the explicit last-pane close of a non-focused workspace stole foc
 ok - mitigation: every in-operation sample preserved exact focus while the doomed workspace was removed
 ok - mitigation: no explicit close and no corrective focus were needed on the defective release
 ok - fallback: a doomed pane holding a persistent child exhausts the proof and takes the plain explicit close
-ok - fallback on a defective release: a bounded wrong-focus window of 4 samples was fully restored to the anchor
+ok - fallback on a defective release: the wrong-focus window the backstop corrected (4 of its samples observed) was fully restored to the anchor
 ok - version floor: herdr 0.7.5 protocol 17 remains conservatively below the floor with steal_live=1
 ok - version floor: an unconfigured home falls back flat on herdr 0.7.5 and the explicit opt-in still projects
 evidence: herdr=0.7.5 protocol=17 steal_live=1 floor_verdict=1 default-session-tripwire=armed
@@ -1623,7 +1623,8 @@ The same guarded named-lab command passed on 2026-09-03 against Herdr 0.8.2 afte
 It reported `steal_live=0 floor_verdict=0 default-session-tripwire=armed`, with the fleet's default session unchanged before and after.
 
 Part C is the case the suite could not reach before: a doomed pane whose shell holds a persistent background child fails the lone-idle-shell proof on every sample, so the plan takes the plain explicit close, in the geometry where the closing workspace's right neighbour is a spacer rather than the focused anchor.
-On 0.7.5 that fallback exposed a bounded four-sample wrong-focus window and restored the anchor exactly; on 0.8.0 the same fallback exposed none, which is why default-on projection is floored at 0.8.0 rather than mitigated further below it.
+On 0.7.5 that fallback moved focus off the anchor and the backstop restored it exactly; that run sampled four wrong-focus observations, but the post-close corrective focus is the deterministic proof because polling can miss the bounded window.
+On 0.8.0 the same fallback exposed none, which is why default-on projection is floored at 0.8.0 rather than mitigated further below it.
 The suite also cross-checks its own Part A measurement against the floor classifier on whatever release it runs, so a drifted protocol-to-release mapping fails there rather than silently gating on the wrong thing.
 
 ### Attached foreground viewer

@@ -2197,11 +2197,22 @@ relaunched hclive harness=claude from=claude model=haiku effort=low backend=herd
 teardown hclive complete (window fmhc-live:t3, worktree /home/curtis/.treehouse/proj-a01c60/1/proj)
 ```
 
-The steer was sent by `fm-send.sh` running inside another hc terminal of the same core, as a Firstmate inside herdr-core would; the doorbell arrived as a plain line with no `<hc>` wrapper, the worker answered `PINEAPPLE`, and it moved the inbox message to `handled/`.
+The steer was sent by `fm-send.sh` running inside another hc terminal of the same core, as a Firstmate inside herdr-core would; the doorbell arrived as a plain line with no `<hc>` wrapper in that pass, the worker answered `PINEAPPLE`, and it moved the inbox message to `handled/`.
 During a running turn the adapter read `agent=alive busy=busy`; after the interrupt Claude rendered `Interrupted` and hc reported `"state":"idle"`.
 After `exit` the adapter read `agent=dead` with `zsh` in the foreground in the task worktree.
 The first relaunch adopted that terminal; the second followed a deliberate `hc kill` and `hc rm` of it, read `missing`, and re-created the task as `t3` in the recorded worktree.
 Teardown removed `t3` through the adapter's close.
+
+A second pass on 2026-11-02 (hc 0.1.13, Linux x86_64, Claude Code at the Haiku model and Codex at low effort) ran in the operator's `default` core from a Firstmate terminal carrying `herdr.space`, with a scratch home and project, and touched no terminal it did not create.
+
+| Guarantee | Command shape | Result |
+| --- | --- | --- |
+| Wrapped ship foreground | `hc get <t> --json` on a live ship worker | `foreground` is `{"name":"sh","argv":["/bin/sh","-c","... claude ..."]}` or the same with `codex`, beside `"status":{"app":"claude-code"...}` or `{"app":"codex","state":"idle"}`; the adapter reads `alive` |
+| Node-bundled Codex | `hc get <t> --json` on a Codex scout | `foreground.argv` is `["node","/usr/bin/codex"]` with `"status":{"app":"codex","state":"idle"}`; the adapter reads `alive busy=idle` |
+| Status clears on exit | ending the harness process under an `sh -c` wrapper | `status` became `null` and the foreground became the interactive `zsh -i -l`, at a pid other than the terminal's own `pid`; the adapter reads `dead` |
+| App labels | `fm-spawn.sh <id> <project> --scout --backend herdr-core` | the worker carried `herdr.space=sp<hash>crew` and `herdr.tab=tb<hash>crew`, and the app then added its own `where` label to it |
+| Idle doorbell | `fm-send.sh <id> 'Live steer check: reply with the single word PINEAPPLE in chat, then wait.'` to an idle Claude and an idle Codex scout | both doorbells landed, both workers answered `PINEAPPLE` and moved the message to `handled/` |
+| Tagged sends | `fm-control.sh <id> exit` from inside an hc terminal | hc delivered `<hc from="t1g">/exit</hc>`, Claude read it as chat rather than its `/exit` command, and the exit was unconfirmed |
 
 `tests/fm-backend-herdr-core.test.sh` is the portable regression for these behaviors; repeat the end-to-end pass above after an hc upgrade to refresh this record.
 

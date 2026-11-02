@@ -65,7 +65,7 @@ Other transient consumers retain their existing shell-relative behavior.
 | herdr | `FM_HOME` determines the adapter's workspace label. |
 | zellij | `FM_HOME` determines the readable home prefix in visible tab titles, but does not split containers; use `FM_ZELLIJ_SESSION` for a separate session; the full home label also includes a short hash of the resolved `FM_ROOT` path. |
 | cmux | `FM_HOME` determines the default config path and readable home prefix in workspace titles; `FM_CONFIG_OVERRIDE` overrides where `config/cmux-socket-password` is read; the full home label also includes a short hash of the resolved `FM_ROOT` path; there is no per-home container split. |
-| herdr-core | `FM_HOME` and the resolved `FM_ROOT` path determine the `fm_home=` label every task terminal carries; there is no per-home container split, and `HC_SESSION` selects the core a new task lands in. |
+| herdr-core | `FM_HOME` and the resolved `FM_ROOT` path determine the `fm_home=` label every task terminal carries and, when Firstmate runs in the Herdr app's core, its shared crew-space and crew-tab label ids; `HC_SESSION` selects the core a new task lands in. |
 
 ## Operational home layout and state
 

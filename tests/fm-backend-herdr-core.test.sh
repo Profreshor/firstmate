@@ -142,6 +142,27 @@ test_create_task_labels_and_detaches() {
   pass "create_task: detached, labelled, session-pinned, and refuses a duplicate"
 }
 
+test_create_task_app_labels() {
+  reset_hc
+  local hash=${HOMETAG##*-} labels
+  add_foreign_terminal t1
+  set_terminal t1 '.labels = {"herdr.space": "spcaptain", "herdr.tab": "tbcaptain"}'
+  HC_TERMINAL_ID=t1 new_task a >/dev/null || fail "create_task failed"
+  HC_TERMINAL_ID=t1 new_task b >/dev/null || fail "create_task failed"
+  labels=$(jq -c '[.terminals.t2.labels, .terminals.t3.labels] | map({s: .["herdr.space"], t: .["herdr.tab"]})' "$FM_HC_STATE")
+  assert_equals "[{\"s\":\"sp${hash}crew\",\"t\":\"tb${hash}crew\"},{\"s\":\"sp${hash}crew\",\"t\":\"tb${hash}crew\"}]" "$labels" \
+    "every worker of this home must share one crew space and tab"
+  assert_equals '{"herdr.space":"spcaptain","herdr.tab":"tbcaptain"}' "$(jq -c '.terminals.t1.labels' "$FM_HC_STATE")" \
+    "Firstmate's own terminal labels must be left alone"
+  set_terminal t1 '.labels = {}'
+  HC_TERMINAL_ID=t1 new_task c >/dev/null || fail "create_task failed"
+  new_task d >/dev/null || fail "create_task failed"
+  HC_TERMINAL_ID=t1 HC_SESSION=lab new_task e >/dev/null || fail "create_task failed"
+  assert_equals "[]" "$(jq -c '[.terminals.t4, .terminals.t5, .terminals.t6 | .labels | keys[] | select(startswith("herdr."))]' "$FM_HC_STATE")" \
+    "a Firstmate outside the app, or a task in another core, gets no app labels"
+  pass "create_task: workers of a home in the app share one crew space and tab"
+}
+
 test_foreign_terminal_is_never_touched() {
   reset_hc
   add_foreign_terminal t1
@@ -175,14 +196,30 @@ test_agent_state() {
   assert_equals dead "$(fm_backend_herdr_core_agent_state "$target")" "a shell in the foreground is agent-free"
   set_terminal t2 '.foreground = {name: "2.1.300", argv: ["claude", "--settings", "x"], pid: 4243, cwd: "/"}'
   assert_equals alive "$(fm_backend_herdr_core_agent_state "$target")" "a harness argv[0] is a live agent"
-  set_terminal t2 '.foreground = {name: "sleep", argv: ["sleep", "5"], pid: 4244, cwd: "/"}'
+  # The spawn wraps the harness in `sh -c`, so hc reports that shell in front
+  # for the agent's whole life; the harness's own status names it.
+  set_terminal t2 '.foreground = {name: "sh", argv: ["/bin/sh", "-c", "codex"], pid: 4245, cwd: "/"} | .status = {app: "codex", state: "idle"}'
+  assert_equals alive "$(fm_backend_herdr_core_agent_state "$target")" "an idle harness under its launch wrapper is a live agent"
+  set_terminal t2 '.status = {app: "claude-code", state: "done"}'
+  assert_equals alive "$(fm_backend_herdr_core_agent_state "$target")" "claude-code's status names a live agent too"
+  set_terminal t2 '.status = null'
+  assert_equals ambiguous "$(fm_backend_herdr_core_agent_state "$target")" "a wrapper whose harness has not reported is not proven agent-free"
+  set_terminal t2 '.status = {app: "some-tool", state: "idle"}'
+  assert_equals ambiguous "$(fm_backend_herdr_core_agent_state "$target")" "a status naming no harness proves nothing"
+  set_terminal t2 '.foreground = {name: "node", argv: ["node", "/usr/bin/codex"], pid: 4246, cwd: "/"} | .status = {app: "codex", state: "idle"}'
+  assert_equals alive "$(fm_backend_herdr_core_agent_state "$target")" "a node-bundled harness is named by its status"
+  # After the spawn's worktree move the interactive login shell is not the
+  # terminal's own process, so only its shape marks the return.
+  set_terminal t2 '.foreground = {name: "zsh", argv: ["/usr/bin/zsh", "-i", "-l"], pid: 4247, cwd: "/"}'
+  assert_equals dead "$(fm_backend_herdr_core_agent_state "$target")" "an interactive shell back in front is agent-free whatever the status says"
+  set_terminal t2 '.status = null | .foreground = {name: "sleep", argv: ["sleep", "5"], pid: 4244, cwd: "/"}'
   assert_equals ambiguous "$(fm_backend_herdr_core_agent_state "$target")" "an unknown program is ambiguous"
   set_terminal t2 '.state = "finished" | .foreground = null'
   assert_equals dead "$(fm_backend_herdr_core_agent_state "$target")" "a finished terminal holds no agent"
   assert_equals unreadable "$(FM_HC_FAKE_FAIL='get' fm_backend_herdr_core_agent_state "$target")" "a failed read is unreadable"
   assert_equals missing "$(fm_backend_herdr_core_agent_state default:t9)" "an absent address is missing"
   assert_equals missing "$(fm_backend_agent_state herdr-core default:t9)" "dispatch reaches the adapter"
-  pass "agent_state: alive, dead, ambiguous, unreadable, and missing from hc's foreground facts"
+  pass "agent_state: alive, dead, ambiguous, unreadable, and missing from hc's foreground and status facts"
 }
 
 test_busy_state() {
@@ -191,13 +228,15 @@ test_busy_state() {
   target=$(new_task t1)
   set_terminal t2 '.status = {app: "claude-code", state: "working"} | .foreground = {name: "claude", argv: ["claude"], pid: 1, cwd: "/"}'
   assert_equals busy "$(fm_backend_busy_state herdr-core "$target")" "working with a harness in front is busy"
-  set_terminal t2 '.foreground = {name: "zsh", argv: ["zsh"], pid: 1, cwd: "/"}'
-  assert_equals unknown "$(fm_backend_busy_state herdr-core "$target")" "a lingering working status over a shell is not busy"
+  set_terminal t2 '.foreground = {name: "sh", argv: ["/bin/sh", "-c", "claude"], pid: 1, cwd: "/"}'
+  assert_equals busy "$(fm_backend_busy_state herdr-core "$target")" "working under the launch wrapper is busy"
+  set_terminal t2 '.foreground = {name: "zsh", argv: ["zsh"], pid: 4242, cwd: "/"}'
+  assert_equals unknown "$(fm_backend_busy_state herdr-core "$target")" "a lingering working status over the login shell is not busy"
   set_terminal t2 '.status = "done"'
   assert_equals idle "$(fm_backend_busy_state herdr-core "$target")" "done is idle"
   set_terminal t2 '.status = null'
   assert_equals unknown "$(fm_backend_busy_state herdr-core "$target")" "no reported status is unknown"
-  pass "busy_state: native working is busy only with a harness in the foreground"
+  pass "busy_state: native working is busy only with a harness, or its launch wrapper, in the foreground"
 }
 
 test_capture_and_current_path() {
@@ -361,6 +400,7 @@ test_secondmate_spawn_refuses_herdr_core() {
 
 test_version_gate
 test_create_task_labels_and_detaches
+test_create_task_app_labels
 test_foreign_terminal_is_never_touched
 test_expected_label_binds_the_task
 test_agent_state

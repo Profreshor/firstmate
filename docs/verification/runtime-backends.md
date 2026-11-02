@@ -2145,6 +2145,66 @@ FM_CMUX_CLAUDE_COMPOSER_LIVE=1 bin/fm-test-run.sh tests/fm-cmux-claude-composer-
 That guard still addresses the worker by task selector, so it no longer reaches the typed submit path and is not a current refresh entry point for this guarantee.
 The portable classifier regression is `tests/fm-backend-cmux.test.sh`.
 
+## herdr-core
+
+The current compatibility floor is herdr-core 0.1.13, and the active live evidence uses hc 0.1.13 on Linux x86_64 with Claude Code driven at the Haiku model, recorded on 2026-10-29.
+The live pass ran entirely in its own core, started with a scrubbed environment under `HC_SESSION=fmhc-live`, and touched no terminal it did not create; the operator's `default` core kept the same process and terminal list throughout.
+
+```sh
+hc --version
+HC_SESSION=fmhc-live hc server status --json
+```
+
+Observed version:
+
+```text
+hc 0.1.13
+```
+
+CLI findings behind the adapter:
+
+| Guarantee | Command shape | Result |
+| --- | --- | --- |
+| Environment marker | `env` inside an hc terminal | `HC_TERMINAL_ID=t3` and `HC_TERMINAL_SOCKET=/run/user/1000/herdr-core/default.sock`; no `HERDR_*` from the `hc` caller |
+| Core environment inheritance | a terminal in a core auto-started from a Herdr pane | `HERDR_ENV=1` present beside `HC_TERMINAL_ID=t1` and `HC_SESSION=fmhcprobe` |
+| Session pinning | `HC_TERMINAL_SOCKET=/nonexistent hc ls` | the `default` core still answered; `HC_SESSION` selects `$XDG_RUNTIME_DIR/herdr-core/<session>.sock` |
+| Live cwd | `hc get` while `bash -c "cd /usr && exec sleep 5"` ran after `cd /home` | `foreground.cwd` was `/usr`, then `/home` once the shell was idle; top-level `cwd` stayed the creation directory |
+| No unsubmitted text | `hc keys <t> 'echo hi'`, then `hc keys <t> . "'" / - _` | `unknown key "echo hi"`, then `unknown key "_"` (exit 6) |
+| Viewport read | `hc read <t> --json` | `"how":"screen"`; trailing blank rows trimmed |
+| Status shape | `hc get <t> --json` against Claude Code | `"status":{"app":"claude-code","state":"working"}`, while `hc ls` flattens it to `"status":"done"` |
+| Close | `hc kill <t>`, `hc rm <t>`, `hc get <t>` | `"state":"finished","reason":"killed"`, `{"removed":"t5"}`, then `not_found` with exit 3 |
+
+The end-to-end pass drove the real scripts against a scratch home and project:
+
+```sh
+bin/fm-spawn.sh hclive <scratch-project> --scout --harness claude --model haiku --effort low --backend herdr-core
+bin/fm-send.sh hclive 'Live steer check: reply with the single word PINEAPPLE in chat, then wait.'
+bin/fm-peek.sh hclive 6
+bin/fm-control.sh hclive interrupt
+bin/fm-control.sh hclive exit
+bin/fm-control.sh hclive relaunch --note '<note>'
+bin/fm-teardown.sh hclive
+```
+
+Observed results:
+
+```text
+spawned hclive harness=claude kind=scout window=fmhc-live:t1 worktree=/home/curtis/.treehouse/proj-a01c60/1/proj
+interrupt-delivered hclive harness=claude backend=herdr-core verified=agent-alive cancel=unconfirmed
+stopped hclive harness=claude backend=herdr-core endpoint=fmhc-live:t1 worktree=/home/curtis/.treehouse/proj-a01c60/1/proj
+relaunched hclive harness=claude from=claude model=haiku effort=low backend=herdr-core endpoint=fmhc-live:t1 worktree=/home/curtis/.treehouse/proj-a01c60/1/proj
+relaunched hclive harness=claude from=claude model=haiku effort=low backend=herdr-core endpoint=fmhc-live:t3 worktree=/home/curtis/.treehouse/proj-a01c60/1/proj
+teardown hclive complete (window fmhc-live:t3, worktree /home/curtis/.treehouse/proj-a01c60/1/proj)
+```
+
+The steer was sent by `fm-send.sh` running inside another hc terminal of the same core, as a Firstmate inside herdr-core would; the doorbell arrived as a plain line with no `<hc>` wrapper, the worker answered `PINEAPPLE`, and it moved the inbox message to `handled/`.
+During a running turn the adapter read `agent=alive busy=busy`; after the interrupt Claude rendered `Interrupted` and hc reported `"state":"idle"`.
+After `exit` the adapter read `agent=dead` with `zsh` in the foreground in the task worktree.
+The first relaunch adopted that terminal; the second followed a deliberate `hc kill` and `hc rm` of it, read `missing`, and re-created the task as `t3` in the recorded worktree.
+Teardown removed `t3` through the adapter's close.
+
+`tests/fm-backend-herdr-core.test.sh` is the portable regression for these behaviors; repeat the end-to-end pass above after an hc upgrade to refresh this record.
+
 ## Codex App host tools
 
 A reusable Desktop host-tool smoke ran on 2026-07-06 against Codex Desktop bundle version 26.623.101652, build 4674, bundle id `com.openai.codex`.

@@ -292,7 +292,7 @@ fm_control_relaunch_resume_flag() {  # <harness> <registered-agent>
 fm_control_backend_supports_key() {  # <backend> <key>
   local backend=${1-} key=${2-}
   case "$backend" in
-    tmux|herdr|zellij|cmux)
+    tmux|herdr|zellij|cmux|herdr-core)
       case "$key" in Escape|Enter|C-c|C-u) return 0 ;; esac
       ;;
     orca)
@@ -302,14 +302,14 @@ fm_control_backend_supports_key() {  # <backend> <key>
   return 1
 }
 
-# Whether <backend> has a recovery-grade agent-state classifier. Only tmux and
-# herdr implement fm_backend_agent_state; zellij, orca, and cmux report
+# Whether <backend> has a recovery-grade agent-state classifier. Only tmux,
+# herdr, and herdr-core implement fm_backend_agent_state; zellij, orca, and cmux report
 # `unverified`, so no reading of theirs can prove an agent stopped. The control
 # plane refuses a stop-proving verb there instead of reporting an unprovable
 # transition as success.
 fm_control_backend_state_verified() {  # <backend>
   case "${1-}" in
-    tmux|herdr) return 0 ;;
+    tmux|herdr|herdr-core) return 0 ;;
   esac
   return 1
 }
@@ -344,6 +344,11 @@ fm_control_backend_state_verified() {  # <backend>
 #     passes `--session <session>`, so the recheck starts and reads the session
 #     the RECORD names, through that session's own socket. The answer is about
 #     the task's endpoint and nothing else.
+#   herdr-core CAN, for the same reason: every hc call is pinned to the
+#     session the record names (HC_SESSION), and hc reaches that session's
+#     core through its own socket, starting it when it is down. A core that
+#     was not running took its non-kept terminals with it, so `missing` from
+#     that core means the terminal is gone.
 #   tmux CANNOT. `list-windows -a` describes only the server the CURRENT
 #     process addresses (its TMUX_TMPDIR/socket), and a task's record does not
 #     carry the endpoint's socket identity - so a different but running server
@@ -371,6 +376,14 @@ fm_control_endpoint_absence_verdict() {  # <backend> <target>
         alive) printf 'alive\t' ;;
         missing) printf 'gone\t' ;;
         *) printf 'unproven\tthe recorded herdr session'"'"'s server could not be started, or its pane could not be classified once it was running' ;;
+      esac
+      ;;
+    herdr-core)
+      case "$(fm_backend_herdr_core_agent_state "$target")" in
+        dead) printf 'dead\t' ;;
+        alive) printf 'alive\t' ;;
+        missing) printf 'gone\t' ;;
+        *) printf 'unproven\tthe recorded herdr-core session'"'"'s terminal could not be classified on a second read' ;;
       esac
       ;;
     *)

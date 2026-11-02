@@ -385,6 +385,7 @@ family_for_basename() {
       printf '%s\n' live-harness-optin
       ;;
     fm-backend-herdr.test.sh|fm-backend-herdr-crew.test.sh|fm-backend-tmux-smoke.test.sh|fm-backend.test.sh|\
+    fm-backend-herdr-core.test.sh|\
     fm-tmux-agent-liveness.test.sh|\
     fm-control.test.sh|fm-control-relaunch.test.sh|\
     fm-herdr-session-cleanup.test.sh|fm-send-resolve-key.test.sh|fm-send-strict.test.sh|\
@@ -1443,6 +1444,9 @@ families_for_changed_path() {
       # pure-contract-unit script. It runs each candidate directly, never
       # through run_script_bounded, so it cannot regress fixture Git isolation.
       printf '%s\n' pure-contract-unit
+      ;;
+    bin/backends/herdr-core.sh)
+      printf '%s\n' backend-dispatch
       ;;
     bin/backends/herdr*|bin/fm-herdr-lab.sh|tests/herdr-test-safety.sh|tests/herdr-client-pair-fixture.sh)
       printf '%s\n' real-herdr-gated

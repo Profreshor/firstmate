@@ -1,0 +1,7 @@
+env FM_HOME=/tmp/fm-lab.YrOkf0 CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEE
+DBACK=0 claude --dangerously-skip-permissions --print 'Reply exactly HANDOFF_LAB_READY and not
+hing else.'
+ data-centre 01M6EV7RKBZQ3B90DRK8QT97F9  HEAD ❯ env FM_HOME=/tmp/fm-lab.YrOkf0 CLAUDE_CODE_E
+NABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --dangerously-skip-permission
+s --print 'Reply exactly HANDOFF_LAB_READY and nothing else.'
+HANDOFF_LAB_READY

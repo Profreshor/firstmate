@@ -1,0 +1,4 @@
+core=fm-lab-hcvisibility-162144-29617
+labelled-primary=t1
+unlabelled-primary=t4
+PASS: app-labelled primary created alpha/beta in a shared crew space/tab; unlabelled primary created gamma without app labels.

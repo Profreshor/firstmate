@@ -1,0 +1,34 @@
+{
+  "primary": {
+    "address": "t1",
+    "labels": {
+      "herdr.space": "spcaptain",
+      "herdr.tab": "tbcaptain"
+    }
+  },
+  "alpha": {
+    "address": "t2",
+    "labels": {
+      "fm_home": "firstmate-8687cf90",
+      "fm_task": "alpha",
+      "herdr.space": "sp8687cf90crew",
+      "herdr.tab": "tb8687cf90crew"
+    }
+  },
+  "beta": {
+    "address": "t3",
+    "labels": {
+      "fm_home": "firstmate-8687cf90",
+      "fm_task": "beta",
+      "herdr.space": "sp8687cf90crew",
+      "herdr.tab": "tb8687cf90crew"
+    }
+  },
+  "unlabelled_negative": {
+    "address": "t5",
+    "labels": {
+      "fm_home": "firstmate-8687cf90",
+      "fm_task": "gamma"
+    }
+  }
+}

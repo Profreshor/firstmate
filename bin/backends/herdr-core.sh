@@ -123,20 +123,41 @@ fm_backend_herdr_core_parse_target() {  # <target>
   esac
 }
 
+# fm_backend_herdr_core_app_labels: the herdr app shows a core terminal that
+# carries both herdr.space and herdr.tab, and terminals sharing both ids share
+# one tab as split panes. When the spawning Firstmate's own terminal is in the
+# app (it carries herdr.space) and the task lands in that same core, echo one
+# shared crew space and tab for this home, derived from the home label's hash;
+# otherwise echo nothing. Only ever applied to a terminal this home creates.
+fm_backend_herdr_core_app_labels() {  # <session> <home-label>
+  local session=$1 hash=${2##*-} space
+  [ -n "${HC_TERMINAL_ID:-}" ] && [ "$session" = "$(fm_backend_herdr_core_session)" ] || return 0
+  space=$(fm_backend_herdr_core_cli "$session" get "$HC_TERMINAL_ID" --json 2>/dev/null \
+    | jq -r '.labels["herdr.space"] // empty' 2>/dev/null)
+  [ -n "$space" ] || return 0
+  printf 'herdr.space=sp%screw\nherdr.tab=tb%screw\n' "$hash" "$hash"
+}
+
 # fm_backend_herdr_core_create_task: start the task's shell terminal in <cwd>,
 # labelled for this home and task. Echoes "<session> <address>".
 fm_backend_herdr_core_create_task() {  # <fm-task-label> <cwd> [session]
-  local label=$1 cwd=$2 session=${3:-} id home out addr
+  local label=$1 cwd=$2 session=${3:-} id home out addr app_label
+  local -a app_args=()
   [ -n "$session" ] || session=$(fm_backend_herdr_core_session)
   id=${label#fm-}
   home=$(fm_backend_hometag)
+  while IFS= read -r app_label; do
+    [ -z "$app_label" ] || app_args+=(--label "$app_label")
+  done <<EOF
+$(fm_backend_herdr_core_app_labels "$session" "$home")
+EOF
   if [ -n "$(fm_backend_herdr_core_cli "$session" ls --json --label "fm_home=$home" --label "fm_task=$id" 2>/dev/null \
     | jq -r '.terminals[]?.address' 2>/dev/null)" ]; then
     echo "error: a herdr-core terminal for task $id already exists in session $session" >&2
     return 1
   fi
   out=$(fm_backend_herdr_core_cli "$session" run --bg --json --no-parent --no-notify \
-    --cwd "$cwd" --label "fm_home=$home" --label "fm_task=$id" 2>&1) || {
+    --cwd "$cwd" --label "fm_home=$home" --label "fm_task=$id" ${app_args[@]+"${app_args[@]}"} 2>&1) || {
     echo "error: hc run failed for $label: $out" >&2
     return 1
   }
@@ -273,16 +294,31 @@ fm_backend_herdr_core_send_text_submit() {  # <target> <text> <retries> <enter-s
 # terminal in FM_BACKEND_HERDR_CORE_JSON. The foreground process is what hc
 # reports; before the shell first runs anything it reports none, and the
 # terminal's own program (the shell) stands in.
+# The spawn launches the harness under an `sh -c` wrapper, so hc reports that
+# wrapper shell in the foreground for the agent's whole life. A foreground that
+# is not the terminal's own program is therefore the agent when the program's
+# self-reported status (OSC 7501, which hc clears when it exits) names a
+# harness; with no status it is `other`. The terminal's own login shell back in
+# the foreground stays `shell` whatever its status says.
 fm_backend_herdr_core_foreground_class() {
-  local fields name argv0 args pid
+  local fields name argv0 args pid root app class
   fields=$(printf '%s' "$FM_BACKEND_HERDR_CORE_JSON" | jq -r '
     (.foreground // {name: null, argv: .argv, pid: .pid}) as $f
     | [($f.name // ($f.argv[0] // "" | split("/") | last)), ($f.argv[0] // ""),
-       (($f.argv // []) | join(" ")), (($f.pid // "") | tostring)] | @tsv' 2>/dev/null) || { printf 'other'; return 0; }
-  IFS=$'\t' read -r name argv0 args pid <<EOF
+       (($f.argv // []) | join(" ")), (($f.pid // "") | tostring), ((.pid // "") | tostring),
+       (.status | if type == "object" then .app // "" else "" end)] | @tsv' 2>/dev/null) || { printf 'other'; return 0; }
+  IFS=$'\t' read -r name argv0 args pid root app <<EOF
 $fields
 EOF
-  fm_agent_process_classify "$name" "$argv0" "$args" "$pid"
+  class=$(fm_agent_process_classify "$name" "$argv0" "$args" "$pid")
+  if [ "$class" != agent ] && [ -n "$pid" ] && [ "$pid" != "$root" ]; then
+    if [ -n "$app" ] && [ "$(fm_agent_process_classify_name "$app")" = agent ]; then
+      class=agent
+    elif [ "$class" = shell ]; then
+      class=other
+    fi
+  fi
+  printf '%s' "$class"
 }
 
 # fm_backend_herdr_core_agent_state: see bin/fm-backend.sh's

@@ -43,15 +43,26 @@ Every task terminal carries `fm_home=<home label>` and `fm_task=<task id>`, wher
 A terminal whose labels do not name this home, and the task when the caller knows it, is never read, typed into, killed, or removed, and reads as `missing`.
 `hc ls --label fm_home=<home label>` lists only this home's task terminals.
 
+## Herdr app visibility
+
+The Herdr app shows a core terminal only when it carries both a `herdr.space` and a `herdr.tab` label, and terminals that share both ids appear together as split panes in one tab.
+When Firstmate's own terminal carries `herdr.space`, meaning Firstmate itself was started from the app, every task terminal this home creates in that same core gets `herdr.space=sp<hash>crew` and `herdr.tab=tb<hash>crew`, where `<hash>` is the hash part of the home label.
+All of one home's workers therefore share a dedicated crew space, separate from Firstmate's own, with one tab of split panes.
+An id the app does not know yet creates that space or tab, so the captain can name the crew space once in the app and the name sticks across later workers.
+When Firstmate's terminal has no `herdr.space`, or the task lands in a different core, workers get no `herdr.*` labels.
+These labels are set only when the task terminal is created; Firstmate never changes `herdr.*` labels on any terminal, including its own.
+
 The recorded target is `<hc session>:<address>`, for example `default:t7`.
 hc picks its core from `HC_SESSION`, defaulting to `default`, and addresses are per core, so every call is pinned to the recorded session.
 A new task lands in the session the spawning Firstmate addresses.
 
 Routine supervision uses `bin/fm-peek.sh <id>` and `FM_HOME=<home> bin/fm-send.sh <id> '<text>'`.
-Interrupt, exit, and relaunch run through `bin/fm-control.sh`, because herdr-core has a recovery-grade agent-state classifier: it classifies the foreground process hc reports through the same shared classifier tmux and Herdr use, reads a finished terminal or a shell in the foreground as agent-free, and reads `missing` only when the recorded session's core reports this home's terminal absent.
+Interrupt, exit, and relaunch run through `bin/fm-control.sh`, because herdr-core has a recovery-grade agent-state classifier: it classifies the foreground process hc reports through the same shared classifier tmux and Herdr use, reads a finished terminal or the terminal's own login shell in the foreground as agent-free, and reads `missing` only when the recorded session's core reports this home's terminal absent.
+The spawn starts the harness under an `sh -c` wrapper, which hc keeps reporting as the foreground for the agent's whole life, so a foreground other than the terminal's own program counts as the agent when the program's self-reported status names a harness, and as ambiguous when it has reported no status.
+hc clears that status when the program exits, and the login shell back in the foreground reads as agent-free whatever the status said.
 A relaunch adopts a live terminal whose shell is in the foreground.
 A finished terminal is removed and replaced in its recorded session and worktree, while an absent terminal is replaced once its absence is proven.
-Busy state comes from hc's own status, which the program reports itself; `working` counts as busy only while a harness process is in the foreground.
+Busy state comes from hc's own status, which the program reports itself; `working` counts as busy only while the foreground classifies as the agent.
 
 ## Limits
 

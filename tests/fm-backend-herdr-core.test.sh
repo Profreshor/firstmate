@@ -194,6 +194,13 @@ test_create_task_crew_tab_cap() {
   assert_equals "crew" "$(crew_tabs t7)" "a freed slot in an earlier tab must be refilled first"
 
   reset_hc
+  add_foreign_terminal t1
+  set_terminal t1 '.labels = {"herdr.space": "spcaptain", "herdr.tab": "tbcaptain"}'
+  FM_HC_FAKE_FAIL=ls HC_TERMINAL_ID=t1 new_task unreadable >/dev/null 2>&1 && fail "a failed crew-tab listing must refuse the spawn"
+  assert_equals '["t1"]' "$(jq -c '.terminals | keys' "$FM_HC_STATE")" "a failed crew-tab listing must not create a worker"
+  assert_no_grep $'\x1frun\x1f' "$FM_HC_LOG" "a failed crew-tab listing must not invoke hc run"
+
+  reset_hc
   printf 'crew\n' > "$config"
   add_foreign_terminal t1
   set_terminal t1 '.labels = {"herdr.space": "spcaptain", "herdr.tab": "tbcaptain"}'
@@ -205,7 +212,7 @@ test_create_task_crew_tab_cap() {
   done
   assert_equals "crew crew2" "$(crew_tabs "t$((default_cap + 1))" "t$((default_cap + 2))")" "plain crew must use herdr's default cap"
   rm -f "$config"
-  pass "create_task: crew tabs fill to the configured cap in order and refill a freed slot"
+  pass "create_task: crew tabs fill, refill, and refuse an unreadable placement"
 }
 
 test_foreign_terminal_is_never_touched() {

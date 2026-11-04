@@ -1,0 +1,17 @@
+# 13:58:42 control: primary idle (claude pid 335092, 2.1.318 (Claude Code), model haiku); host pid 340496 on watcher 342253
+# 13:58:46 control (63a6fd1072ed8b274d141280365cda8a56785435): primary 335092 exited; event appended at 1793822323
+# 13:59:47 control: after 60s no rewake, no primary command, lock still names dead 335092, watchers: 0
+ok - resume live control (2.1.318 (Claude Code)): on 63a6fd1072ed8b274d141280365cda8a56785435 a resumed primary sits unmonitored, so the scenario catches the gap
+# 14:00:13 graceful: primary idle (claude pid 382432, 2.1.318 (Claude Code), model haiku); host pid 389965 on watcher 392054
+# 14:00:14 graceful: primary 382432 exited; event appended at 1793822414 during the downtime
+# 14:00:19 graceful: resumed with no prompt; lock now names 397858
+# 14:00:30 graceful: rewake delivered at 1793822421; host log: 1793822419	start	gen=host-401138-1793822419	primary=claude;1793822420	pass-through	attended	main-only;
+# 14:00:30 graceful: resumed turn ran: bin/fm-session-start.sh;bin/fm-wake-drain.sh;
+# 14:00:34 graceful: exactly one watcher (411978) after the woken turn
+ok - resume live (2.1.318 (Claude Code)): a graceful restart re-arms and handles the downtime's event with no prompt typed
+# 14:01:01 hardkill: primary idle (claude pid 414079, 2.1.318 (Claude Code), model haiku); host pid 427574 on watcher 429552
+# 14:01:04 hard kill: primary 414079 killed; orphan hook 427280 and host 427574 alive; ledger: epoch=1 owner_pid=427280 outcome=arming updated_at=1793822449
+# 14:01:07 hard kill: lock names 436129; one watcher (437962); old hook alive=no; old host alive=no; ledger: epoch=2 owner_pid=436293 outcome=arming updated_at=1793822466
+# 14:02:46 hard kill: event appended at 1793822566
+# 14:02:52 hard kill: resumed session ran: bin/fm-session-start.sh 2>&1 | tail -40;bin/fm-wake-drain.sh;bin/fm-branch-report.sh --task fleet --verdict routine --silent true --wake "check: rearm-resurface" --summary "Rearm check: no queued records were presented, no tasks needed action, and the watcher re-arms through the Stop hook; nothing c
+ok - resume live (2.1.318 (Claude Code)): a hard kill's orphaned cycle gives way to one watcher that delivers to the resumed session

@@ -46,8 +46,11 @@ A terminal whose labels do not name this home, and the task when the caller know
 ## Herdr app visibility
 
 The Herdr app shows a core terminal only when it carries both a `herdr.space` and a `herdr.tab` label, and terminals that share both ids appear together as split panes in one tab.
-When Firstmate's own terminal carries `herdr.space`, meaning Firstmate itself was started from the app, every task terminal this home creates in that same core gets `herdr.space=sp<hash>crew` and `herdr.tab=tb<hash>crew`, where `<hash>` is the hash part of the home label.
-All of one home's workers therefore share a dedicated crew space, separate from Firstmate's own, with one tab of split panes.
+When Firstmate's own terminal carries `herdr.space`, meaning Firstmate itself was started from the app, every task terminal this home creates in that same core gets `herdr.space=sp<hash>crew` and a crew tab label, where `<hash>` is the hash part of the home label.
+All of one home's workers therefore share a dedicated crew space, separate from Firstmate's own, with tabs of split panes.
+A new worker takes the first of `tb<hash>crew`, `tb<hash>crew2`, `tb<hash>crew3`, and so on holding fewer of this home's live terminals than the cap, counted by label, so a freed slot in an earlier tab is refilled before a later tab grows.
+The cap is `<n>` from a `crew:<n>` value in `config/herdr-presentation-spaces`, and any other value or no file means the default cap that [Crew workspace](herdr-backend.md#crew-workspace) states for plain `crew`.
+Placement takes no lock, so two workers spawned at once can both take a tab's last slot.
 An id the app does not know yet creates that space or tab, so the captain can name the crew space once in the app and the name sticks across later workers.
 When Firstmate's terminal has no `herdr.space`, or the task lands in a different core, workers get no `herdr.*` labels.
 These labels are set only when the task terminal is created; Firstmate never changes `herdr.*` labels on any terminal, including its own.

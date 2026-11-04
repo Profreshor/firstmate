@@ -126,16 +126,36 @@ fm_backend_herdr_core_parse_target() {  # <target>
 # fm_backend_herdr_core_app_labels: the herdr app shows a core terminal that
 # carries both herdr.space and herdr.tab, and terminals sharing both ids share
 # one tab as split panes. When the spawning Firstmate's own terminal is in the
-# app (it carries herdr.space) and the task lands in that same core, echo one
-# shared crew space and tab for this home, derived from the home label's hash;
-# otherwise echo nothing. Only ever applied to a terminal this home creates.
+# app (it carries herdr.space) and the task lands in that same core, echo this
+# home's crew space and the first crew tab (tb<hash>crew, tb<hash>crew2, ...)
+# holding fewer live terminals than the cap, derived from the home label's hash;
+# otherwise echo nothing. The cap comes from a crew:<n> preference in herdr's
+# config parser, and any other preference means herdr's default cap. Only ever
+# applied to a terminal this home creates.
 fm_backend_herdr_core_app_labels() {  # <session> <home-label>
-  local session=$1 hash=${2##*-} space
+  local session=$1 home=$2 hash=${2##*-} space cap tab count n=1
   [ -n "${HC_TERMINAL_ID:-}" ] && [ "$session" = "$(fm_backend_herdr_core_session)" ] || return 0
   space=$(fm_backend_herdr_core_cli "$session" get "$HC_TERMINAL_ID" --json 2>/dev/null \
     | jq -r '.labels["herdr.space"] // empty' 2>/dev/null)
   [ -n "$space" ] || return 0
-  printf 'herdr.space=sp%screw\nherdr.tab=tb%screw\n' "$hash" "$hash"
+  # shellcheck source=bin/backends/herdr.sh
+  command -v fm_backend_herdr_presentation_preference >/dev/null 2>&1 || . "$FM_BACKEND_HERDR_CORE_ROOT/bin/backends/herdr.sh"
+  cap=$(fm_backend_herdr_presentation_preference "${FM_CONFIG_OVERRIDE:-$FM_HOME/config}")
+  case "$cap" in
+    crew:*) cap=${cap#crew:} ;;
+    *) cap=$FM_BACKEND_HERDR_CREW_PANE_CAP_DEFAULT ;;
+  esac
+  tab=tb${hash}crew
+  # ponytail: no lock, so two spawns racing for a tab's last slot can both land
+  # in it; that overfill is acceptable.
+  while :; do
+    count=$(fm_backend_herdr_core_cli "$session" ls --json --label "fm_home=$home" --label "herdr.tab=$tab" 2>/dev/null \
+      | jq -r '.terminals | length' 2>/dev/null)
+    [ "${count:-0}" -ge "$cap" ] || break
+    n=$((n + 1))
+    tab=tb${hash}crew$n
+  done
+  printf 'herdr.space=sp%screw\nherdr.tab=%s\n' "$hash" "$tab"
 }
 
 # fm_backend_herdr_core_create_task: start the task's shell terminal in <cwd>,

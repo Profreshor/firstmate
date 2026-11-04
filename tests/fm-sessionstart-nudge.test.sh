@@ -156,6 +156,7 @@ SH
   printf '%s\n' "$prior_owner" > "$root/state/.session-start-complete"
   : > "$root/state/task.meta"
 
+  # shellcheck disable=SC2016 # The fixture expands in its own shell by design.
   out=$(printf '%s\n' '{"session_id":"reclaimed","hook_event_name":"SessionStart","source":"resume"}' \
     | FM_GATE_REFUSE_BYPASS=0 FM_HOME="$root" "$fake_claude" -c '
         "$FM_HOME/bin/fm-claude-stop-autoarm.sh" >/dev/null 2>&1 || true

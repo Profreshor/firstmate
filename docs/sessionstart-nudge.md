@@ -83,8 +83,11 @@ This routing deliberately inverts the previous nudge matcher, which fired on `st
 
 Two records together are the idempotency interlock for the whole scheme:
 
-- Current harness ownership of the lock.
-- Its matching `state/.session-start-complete` record.
+- The current lock is in the hook's process ancestry.
+- Its regular `state/.session-start-complete` record names that same numeric lock pid.
+
+The nudge stays silent only when both records prove the current session completed the digest.
+This prevents a resume auto-arm reclaim from suppressing the ordinary SessionStart instruction with a prior owner's completion record.
 
 The full digest updates the completion record in this order:
 
@@ -392,9 +395,10 @@ It proves the nudge wrapper's silence for these cases:
 - Both gate signals.
 - An unmarked linked worktree.
 - A missing state directory.
-- An already-owned lock.
+- An already-owned lock with a matching completion record.
 
 It also proves the nudge wrapper's exact U+2063 `FIRSTMATE_OP:`-prefixed, `session-start`-typed one-line output.
+It proves stale-owner recovery followed by a prior owner's completion record still emits that instruction.
 
 It separately proves the run wrapper's silence for the gate environment and an unmarked linked worktree, including the internal Pi prerequisite's explicit silent stand-down.
 It proves the run wrapper creates a missing state directory on a fresh primary and delivers the full digest, while an unmarked linked worktree gets none.

@@ -289,6 +289,21 @@ EOF
   fm_harness_pid_alive "$lock_pid"
 }
 
+# True when state dir $1 has a regular completion record for its current
+# numeric lock owner. A prior session's completion never proves this session
+# completed its startup digest.
+fm_session_start_complete() {
+  local state=$1 lock_pid completion_pid
+  [ -f "$state/.lock" ] && [ ! -L "$state/.lock" ] || return 1
+  [ -f "$state/.session-start-complete" ] && [ ! -L "$state/.session-start-complete" ] || return 1
+  lock_pid=$(cat "$state/.lock" 2>/dev/null) || return 1
+  completion_pid=$(cat "$state/.session-start-complete" 2>/dev/null) || return 1
+  case "$lock_pid" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  [ "$completion_pid" = "$lock_pid" ]
+}
+
 # True when state dir $1 records a live verified harness outside this process's
 # contiguous harness ancestry that was not recorded by this same trusted Claude
 # session. Sets FM_SESSION_LOCK_FOREIGN_OWNER_PID for a diagnostic caller.

@@ -690,7 +690,7 @@ A one-off script ran the same hook on the background surface, whose parent chain
 
 What these runs do not establish:
 
-- The resume hook and the session-start nudge run in parallel, so a hook that reclaims the lock first would silence the nudge; every run here delivered the nudge, so that race stays unobserved and unguarded.
+- The resume hook and the session-start nudge did not race in the real-process runs, and the completion check closes that ordering gap, pinned by the portable nudge regression.
 - The model's handling after the drain follows the digest it just read, so the guard treats the drain as proof of delivery and the acknowledgement as evidence only.
 - The orphan takeover was exercised only on the interactive surface, because no background run produced a new process beside a surviving hook.
 - An earlier stub-hook probe on the background surface did see the daemon restart a SIGKILLed worker (`attempt: 2`) beside a surviving hook, and the difference from the two runs above is unexplained.
@@ -701,6 +701,7 @@ Portable coverage:
 
 ```text
 tests/fm-claude-stop-autoarm.test.sh
+tests/fm-sessionstart-nudge.test.sh
 ```
 
 ## Supervision host

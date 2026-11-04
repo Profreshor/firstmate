@@ -7,6 +7,11 @@
 # deduplication across firings. It owns routine tokenless watcher continuity
 # for Claude primaries (main home and marked secondmate homes):
 #
+#   - Resume: the same command is also registered for SessionStart with the
+#     "resume" matcher, because a process that resumes a session has no turn end
+#     to arm from until someone types. Its exit 2 opens a turn on the idle
+#     resumed session just as a Stop firing's does
+#     (docs/verification/supervision.md); every rule below applies unchanged.
 #   - Scope: only a genuine primary checkout (plain checkout or validly marked
 #     secondmate home) with AGENTS.md, bin/, and the effective state dir - the
 #     exact fm-turnend-guard.sh scope. Child crew/scout worktrees stay inert.
@@ -19,6 +24,10 @@
 #     the hook delegates guarded recovery to bin/fm-lock.sh and then re-verifies
 #     ownership. A live owner, missing lock, malformed lock, or unresolved
 #     ancestry remains inert, so a competing session never arms or rewakes.
+#     That recovery also proves any open claim belongs to the dead session: a
+#     hard-killed Claude leaves its parked hook running, and that hook's exit 2
+#     has no session left to wake, so the firing takes the next generation
+#     instead of deferring to it.
 #   - AFK: while state/.afk exists the away daemon owns the watcher and triage;
 #     this hook exits 0 and NEVER rewakes the primary (checked again at
 #     translation time so a mid-cycle AFK transition is honored).
@@ -119,9 +128,9 @@ usage() {
   cat <<'EOF'
 Usage: fm-claude-stop-autoarm.sh
 
-Claude Stop hook registered in .claude/settings.json; not for manual use.
-It reads the Stop payload on stdin and, in a primary home that needs
-supervision, arms the watcher or supervision host for this session.
+Claude Stop and SessionStart resume hook registered in .claude/settings.json;
+not for manual use. It reads the hook payload on stdin and, in a primary home
+that needs supervision, arms the watcher or supervision host for this session.
 Exit 0 is silent; exit 2 carries a rewake banner on stderr.
 EOF
 }
@@ -167,7 +176,7 @@ esac
 # owner of that max(300, poll+60) derivation.
 GRACE=${FM_GUARD_GRACE:-$(fm_poll_derived_grace)}
 
-# Consume the Stop payload once. The decisions below are state-based; the
+# Consume the hook payload once. The decisions below are state-based; the
 # payload is read so a slow writer can never wedge on a full pipe, and its host
 # is inspected before anything else runs.
 PAYLOAD=$(cat 2>/dev/null || true)
@@ -226,9 +235,11 @@ need_supervision || exit 0
 # Delegate the claim to fm-lock.sh so its live-owner refusal and write semantics
 # remain the single acquisition owner, then re-verify current-session identity
 # before touching any auto-arm state.
+SUPERSEDE_OPEN=
 if [ "$RECOVER_SESSION_LOCK" -eq 1 ]; then
   "$SCRIPT_DIR/fm-lock.sh" >/dev/null 2>&1 || exit 0
   fm_session_lock_owned_by_self "$STATE" || exit 0
+  SUPERSEDE_OPEN='supersede-open'
 fi
 
 # --- single-flight generation claim --------------------------------------------
@@ -242,16 +253,17 @@ fi
 # while a role-carrying hold is a legacy lock-holding claim from a
 # pre-generation build (or the guard's own terminal-check), which the legacy
 # shim defers to while genuinely deciding and reclaims once when proven
-# abandoned.
-fm_autoarm_claim_open "$STATE" "$GRACE" && exit 0
-fm_autoarm_claim_next "$STATE" "$GRACE"
+# abandoned. A firing that just recovered the session lock defers to nothing,
+# because any open claim is the dead session's orphaned hook (header).
+[ -z "$SUPERSEDE_OPEN" ] && fm_autoarm_claim_open "$STATE" "$GRACE" && exit 0
+fm_autoarm_claim_next "$STATE" "$GRACE" "$SUPERSEDE_OPEN"
 CLAIM_RC=$?
 if [ "$CLAIM_RC" -ne 0 ]; then
   [ "$CLAIM_RC" -eq 2 ] && exit 0
   ROLE=$(fm_lock_role "$OWNER_LOCK" 2>/dev/null || true)
   [ -n "$ROLE" ] || exit 0
   fm_autoarm_release_abandoned "$STATE" "$GRACE" || exit 0
-  fm_autoarm_claim_next "$STATE" "$GRACE" || exit 0
+  fm_autoarm_claim_next "$STATE" "$GRACE" "$SUPERSEDE_OPEN" || exit 0
 fi
 MY_GEN=$FM_AUTOARM_MY_GEN
 [ -n "$MY_GEN" ] || exit 0

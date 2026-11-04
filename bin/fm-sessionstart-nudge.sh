@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Print the one-line session-start instruction only for a genuine firstmate
-# primary whose current harness session has not already acquired the home lock.
+# primary whose current harness session has not already completed the digest
+# under its current home lock, so a reclaimed dead-owner lock cannot silence
+# the ordinary SessionStart nudge before the new session has started.
 # Every silence and error path exits 0 because Claude SessionStart exit 2 blocks
 # session initialization.
 set -u
@@ -14,6 +16,8 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 . "$SCRIPT_DIR/fm-gate-refuse-lib.sh"
 # shellcheck source=bin/fm-primary-scope-lib.sh
 . "$SCRIPT_DIR/fm-primary-scope-lib.sh"
+# shellcheck source=bin/fm-session-lock-lib.sh
+. "$SCRIPT_DIR/fm-session-lock-lib.sh"
 # shellcheck source=bin/fm-operational-input.sh
 . "$SCRIPT_DIR/fm-operational-input.sh"
 
@@ -45,7 +49,7 @@ lock_is_in_ancestry() {
   return 1
 }
 
-lock_is_in_ancestry && exit 0
+lock_is_in_ancestry && fm_session_start_complete "$STATE" && exit 0
 nudge=
 fm_operational_input_encode session-start \
   "Run \`bin/fm-session-start.sh\` now, exactly once, before executing any other instructions." \

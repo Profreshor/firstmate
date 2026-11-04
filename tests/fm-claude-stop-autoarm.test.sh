@@ -312,6 +312,48 @@ test_reclaims_stale_session_lock_before_arming() {
   pass "auto-arm: a demonstrably dead recorded session owner is reclaimed through fm-lock.sh before arming"
 }
 
+# The incident shape: a new process resumed the session, so the lock still names
+# the dead process and the only hook that has fired is SessionStart's.
+test_resume_payload_reclaims_arms_and_rewakes() {
+  local dir out status expected_owner
+  dir=$(make_primary_dir "$TMP_ROOT/resume-reclaims")
+  : > "$dir/state/task.meta"
+  printf '9999999\n' > "$dir/state/.lock"
+  write_arm_fixture "$dir" actionable
+  out=$(printf '%s\n' '{"session_id":"resumed","hook_event_name":"SessionStart","source":"resume"}' \
+    | FM_HOME="$dir" "$FAKE_CLAUDE" -c '
+        printf "%s\n" "$$" > "$FM_HOME/state/expected-owner"
+        "$FM_HOME/bin/fm-claude-stop-autoarm.sh"
+      ' 2>&1); status=$?
+  expect_code 2 "$status" "a resume with a live fleet must rewake the idle session"
+  expected_owner=$(cat "$dir/state/expected-owner")
+  [ "$(cat "$dir/state/.lock")" = "$expected_owner" ] || fail "resume did not reclaim the dead owner's lock"
+  [ "$(wc -l < "$dir/state/arm-ran" | tr -d ' ')" = 1 ] || fail "resume must run exactly one arm"
+  assert_contains "$out" "firstmate watcher wake" "resume rewake banner"
+  [ "$(epoch_outcome "$dir")" = rewake ] || fail "resume must record outcome=rewake"
+  pass "auto-arm: a resume payload reclaims a dead owner, arms once, and rewakes with no turn end"
+}
+
+test_resume_payload_is_inert_beside_a_live_owner() {
+  local dir other out status
+  dir=$(make_primary_dir "$TMP_ROOT/resume-live-owner")
+  : > "$dir/state/task.meta"
+  write_arm_fixture "$dir" actionable
+  "$FAKE_CLAUDE" -c 'sleep 60; :' &
+  other=$!
+  printf '%s\n' "$other" > "$dir/state/.lock"
+  out=$(printf '%s\n' '{"session_id":"resumed","hook_event_name":"SessionStart","source":"resume"}' \
+    | FM_HOME="$dir" "$FAKE_CLAUDE" -c '"$FM_HOME/bin/fm-claude-stop-autoarm.sh"' 2>&1); status=$?
+  kill "$other" 2>/dev/null || true
+  wait "$other" 2>/dev/null || true
+  expect_code 0 "$status" "a resume must stay inert beside another live session"
+  [ -z "$out" ] || fail "a resume beside a live owner produced output: $out"
+  [ "$(cat "$dir/state/.lock")" = "$other" ] || fail "a resume took the lock from a live session"
+  assert_absent "$dir/state/arm-ran" "a resume armed beside a live session"
+  assert_absent "$dir/state/.claude-autoarm-epoch" "a resume wrote an epoch beside a live session"
+  pass "auto-arm: a resume never takes over from another live session holding the lock"
+}
+
 test_inert_when_lock_held_by_other_harness() {
   local dir other out status owner_after
   dir=$(make_primary_dir "$TMP_ROOT/other-lock")
@@ -1225,6 +1267,31 @@ test_open_generation_claim_defers_without_any_lock() {
   pass "auto-arm: a live open generation claim defers concurrent firings with no lock held"
 }
 
+# A hard-killed Claude leaves its parked hook running, with a live identity and
+# a watcher that keeps the beacon fresh, so its claim reads as open. That hook's
+# exit 2 has no session left to wake, so a firing that just proved the lock owner
+# dead must take over rather than defer and lose the wake.
+test_lock_recovery_supersedes_an_orphaned_open_claim() {
+  local dir out status pid
+  dir=$(make_primary_dir "$TMP_ROOT/orphaned-claim")
+  : > "$dir/state/task1.meta"
+  printf '9999999\n' > "$dir/state/.lock"
+  write_arm_fixture "$dir" actionable
+  sleep 60 &
+  pid=$!
+  record_autoarm_v2_claim "$dir" 464 "$pid" arming "$pid" || fail "could not record a v2 claim"
+  : > "$dir/state/.last-watcher-beat"
+  out=$(printf '%s\n' '{"session_id":"resumed","hook_event_name":"SessionStart","source":"resume"}' \
+    | FM_HOME="$dir" "$FAKE_CLAUDE" -c '"$FM_HOME/bin/fm-claude-stop-autoarm.sh"; status=$?; :; exit "$status"' 2>&1); status=$?
+  kill -0 "$pid" 2>/dev/null || fail "taking over from the orphan must not signal it"
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  expect_code 2 "$status" "the resumed session must get the wake the orphan could not deliver"
+  assert_contains "$out" "firstmate watcher wake" "orphan takeover rewake banner"
+  [ "$(epoch_field "$dir" epoch)" = 465 ] || fail "the takeover must claim the next generation: $(epoch_field "$dir" epoch)"
+  pass "auto-arm: recovering a dead session's lock supersedes that session's orphaned open claim"
+}
+
 # The 2026-08-26 watcher flap in the generation model: a live, identity-matched
 # owner whose ledger entry and watcher beacon are both older than grace is
 # stuck, and the next firing supersedes it by taking the next generation.
@@ -1742,6 +1809,8 @@ test_fm_lock_status_still_works_with_shared_lib() {
 test_inert_in_child_worktree
 test_inert_without_session_lock
 test_reclaims_stale_session_lock_before_arming
+test_resume_payload_reclaims_arms_and_rewakes
+test_resume_payload_is_inert_beside_a_live_owner
 test_inert_when_lock_held_by_other_harness
 test_inert_when_afk
 test_stale_lock_recovery_preserves_afk_and_need_gates
@@ -1775,6 +1844,7 @@ test_terminal_check_claim_is_never_reclaimed
 test_stuck_live_legacy_owner_is_retired_and_reclaimed
 test_stopped_legacy_owner_is_reclaimed_with_term_pending
 test_open_generation_claim_defers_without_any_lock
+test_lock_recovery_supersedes_an_orphaned_open_claim
 test_stuck_generation_claim_is_superseded_and_rearms
 test_identityless_ledger_never_defers
 test_superseded_owner_never_reinvokes_the_arm

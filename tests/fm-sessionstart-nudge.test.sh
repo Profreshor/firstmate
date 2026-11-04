@@ -127,8 +127,48 @@ test_owned_lock_is_silent() {
   local root="$TMP_ROOT/already-ran"
   make_primary "$root"
   printf '%s\n' "$$" > "$root/state/.lock"
+  printf '%s\n' "$$" > "$root/state/.session-start-complete"
   expect_silent_zero "owned lock nudge" run_nudge "$root"
   pass "fm-sessionstart-nudge: a lock holder in process ancestry is already run"
+}
+
+test_reclaimed_lock_with_prior_completion_nudges() {
+  local root="$TMP_ROOT/reclaimed-lock" out status=0 prior_owner=9999999 current_owner
+  local fake_claude="$root/bin/claude"
+  make_primary "$root"
+  mkdir -p "$root/config"
+  : > "$root/config/supervision-host-off"
+  cp "$ROOT/bin/fm-claude-stop-autoarm.sh" "$ROOT/bin/fm-primary-scope-lib.sh" \
+    "$ROOT/bin/fm-supervision-lib.sh" "$ROOT/bin/fm-wake-lib.sh" \
+    "$ROOT/bin/fm-path-lib.sh" "$ROOT/bin/fm-session-lock-lib.sh" \
+    "$ROOT/bin/fm-cursor-lib.sh" "$ROOT/bin/fm-hook-host-lib.sh" \
+    "$ROOT/bin/fm-supervision-engine-lib.sh" "$ROOT/bin/fm-lock.sh" \
+    "$ROOT/bin/fm-afk-contract.sh" "$ROOT/bin/fm-classify-lib.sh" \
+    "$ROOT/bin/fm-timeout-lib.sh" "$ROOT/bin/fm-sessionstart-nudge.sh" \
+    "$ROOT/bin/fm-gate-refuse-lib.sh" "$ROOT/bin/fm-operational-input.sh" "$root/bin/"
+  cat > "$root/bin/fm-watch-arm.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'stale: fixture recovery\n'
+SH
+  ln -s /bin/bash "$fake_claude"
+  chmod +x "$root/bin/"*.sh
+  printf '%s\n' "$prior_owner" > "$root/state/.lock"
+  printf '%s\n' "$prior_owner" > "$root/state/.session-start-complete"
+  : > "$root/state/task.meta"
+
+  # shellcheck disable=SC2016 # The fixture expands in its own shell by design.
+  out=$(printf '%s\n' '{"session_id":"reclaimed","hook_event_name":"SessionStart","source":"resume"}' \
+    | FM_GATE_REFUSE_BYPASS=0 FM_HOME="$root" "$fake_claude" -c '
+        "$FM_HOME/bin/fm-claude-stop-autoarm.sh" >/dev/null 2>&1 || true
+        "$FM_HOME/bin/fm-sessionstart-nudge.sh"
+      ') || status=$?
+  expect_code 0 "$status" "nudge after Claude auto-arm stale-owner recovery"
+  current_owner=$(cat "$root/state/.lock")
+  [ "$current_owner" != "$prior_owner" ] \
+    || fail "the Claude auto-arm recovery retained the dead owner"
+  [ "$out" = "$NUDGE_LINE" ] \
+    || fail "a prior owner's completion silenced the reclaimed session: $out"
+  pass "fm-sessionstart-nudge: stale-owner recovery still delivers the ordinary SessionStart instruction"
 }
 
 # A firstmate running inside a PID namespace - a container, or `codex sandbox` -
@@ -156,6 +196,7 @@ test_namespace_pid1_lock_holder_is_silent() {
     || fail "the namespace fixture did not nudge without a lock, so its silence proves nothing: $out"
 
   printf '1\n' > "$root/state/.lock"
+  printf '1\n' > "$root/state/.session-start-complete"
   status=0
   out=$(unshare -rpf --mount-proc bash -c \
     "FM_GATE_REFUSE_BYPASS=0 FM_ROOT_OVERRIDE='$root' FM_HOME='$root' '$NUDGE'; exit \$?") || status=$?
@@ -169,7 +210,8 @@ test_opencode_plugin_delivers_exact_nudge_once() {
   local root="$TMP_ROOT/opencode-primary" out status=0
   make_primary "$root"
   cp "$ROOT/bin/fm-sessionstart-nudge.sh" "$ROOT/bin/fm-primary-scope-lib.sh" \
-    "$ROOT/bin/fm-gate-refuse-lib.sh" "$ROOT/bin/fm-operational-input.sh" "$root/bin/"
+    "$ROOT/bin/fm-gate-refuse-lib.sh" "$ROOT/bin/fm-session-lock-lib.sh" \
+    "$ROOT/bin/fm-cursor-lib.sh" "$ROOT/bin/fm-operational-input.sh" "$root/bin/"
   chmod +x "$root/bin/fm-sessionstart-nudge.sh"
   out=$(PLUGIN="$ROOT/.opencode/plugins/fm-primary-sessionstart-nudge.js" \
     WORKTREE="$root" EXPECTED="$NUDGE_LINE" node --input-type=module 2>&1 <<'EOF'
@@ -926,6 +968,7 @@ test_pi_large_sessionstart_digest_is_delivered_loudly() {
     "$ROOT/.pi/extensions/lib/fm-sessionstart-supervisor.mjs" "$fixture/.pi/extensions/lib/"
   cp "$ROOT/bin/fm-sessionstart-run.sh" "$ROOT/bin/fm-sessionstart-nudge.sh" \
     "$ROOT/bin/fm-primary-scope-lib.sh" "$ROOT/bin/fm-gate-refuse-lib.sh" \
+    "$ROOT/bin/fm-session-lock-lib.sh" "$ROOT/bin/fm-cursor-lib.sh" \
     "$ROOT/bin/fm-hook-host-lib.sh" \
     "$ROOT/bin/fm-operational-input.sh" "$fixture/bin/"
   cat > "$fixture/bin/fm-session-start.sh" <<'SH'
@@ -1101,6 +1144,7 @@ test_unmarked_linked_worktree_is_silent
 test_linked_secondmate_primary_nudges
 test_missing_state_is_silent
 test_owned_lock_is_silent
+test_reclaimed_lock_with_prior_completion_nudges
 test_namespace_pid1_lock_holder_is_silent
 test_opencode_plugin_delivers_exact_nudge_once
 test_run_startup_runs_the_full_digest

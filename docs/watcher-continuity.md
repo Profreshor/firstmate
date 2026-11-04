@@ -28,7 +28,7 @@ Codex and Grok keep their own protocols; see [Manual recovery and other harnesse
 | omp | `.omp/extensions/fm-primary-omp-watch.ts` |
 | OpenCode | `.opencode/plugins/fm-primary-watch-arm.js` |
 | Cursor | `.cursor/hooks.json` `stop` hook (`bin/fm-turnend-guard-cursor.sh`) |
-| Claude | `.claude/settings.json` Stop `asyncRewake` hook (`bin/fm-claude-stop-autoarm.sh`) |
+| Claude | `.claude/settings.json` Stop and `SessionStart` resume `asyncRewake` hook (`bin/fm-claude-stop-autoarm.sh`) |
 
 On a non-Pi primary, a home that runs the supervision host also changes what the owner runs; see [Supervision host](#supervision-host).
 
@@ -80,13 +80,26 @@ Cursor's `.cursor/hooks.json` `stop` hook (`bin/fm-turnend-guard-cursor.sh`) own
 It re-arms by parking that awaited hook on `bin/fm-watch-arm.sh` and returning an actionable close as one follow-up.
 [`turnend-guard.md`](turnend-guard.md#harness-integrations) owns its Pi-host stand-down, loop bounds, and supersession baton.
 
-### Claude Stop hook
+### Claude Stop and resume hooks
 
-Claude's `.claude/settings.json` Stop `asyncRewake` hook (`bin/fm-claude-stop-autoarm.sh`) owns routine tokenless re-arm.
+Claude's `.claude/settings.json` Stop and `SessionStart` resume `asyncRewake` hook (`bin/fm-claude-stop-autoarm.sh`) owns routine tokenless re-arm.
 Do not run the hook as a manual arm from a tool turn: a short-lived tool process cannot own its park; its header and help own the invocation contract.
-The hook fires on every Stop.
-On each Stop, an eligible primary with supervision need admits one home-scoped owner, which foregrounds `bin/fm-watch-arm.sh` inside the hook-owned process tree.
+The hook fires on every Stop and session resume.
+On each firing, an eligible primary with supervision need admits one home-scoped owner, which foregrounds `bin/fm-watch-arm.sh` inside the hook-owned process tree.
 While supervision is still needed and away mode remains inactive, an actionable close wakes the idle session through exit 2.
+
+### Claude session resume
+
+A new process resuming a Claude session has no turn end to arm from until someone types, so `.claude/settings.json` also registers the same hook for `SessionStart` with the `resume` matcher.
+It runs every rule of the Stop path, so it reclaims a dead owner's lock, attaches to a healthy cycle, and stays inert beside another live session.
+Its exit 2 opens a turn on the idle resumed session with nobody typing, on both the interactive and the background surface, so a wake that lands during or after the restart gets handled.
+That turn also carries the resume's session-start instruction from [`sessionstart-nudge.md`](sessionstart-nudge.md#nudge-wrapper-lock-check), because nothing else gave the new process a digest.
+A resume with no wake to deliver only parks monitoring, and session start then runs at the next turn.
+[Verification](verification/supervision.md#claude-session-resume-2026-11-04) holds the real-process evidence.
+
+A hard-killed Claude leaves its parked hook running, with a live identity and a watcher that keeps the beacon fresh, so its generation claim reads as open and would defer every later firing.
+That hook's exit 2 has no session left to wake.
+A firing that has just recovered the session lock has proved the claim belongs to the dead session, so it takes the next generation rather than deferring, and the orphan goes silent like any superseded owner.
 
 ### Claude session-lock ownership
 
@@ -164,7 +177,7 @@ When restoration does not succeed, the model is never left blind.
 
 ### Claude handling successor
 
-Claude's Stop hook also starts one handling successor before notification.
+Claude's hook also starts one handling successor before notification.
 After an actionable foreground close, including an attached peer cycle that ended, the hook:
 
 1. Launches `bin/fm-watch-arm.sh` with the closed arm's pid as `FM_WATCH_PREDECESSOR_ARM_PID`.
@@ -525,9 +538,10 @@ OpenCode support targets persistent TUI sessions rather than headless `opencode 
 
 The other harnesses rely on these mechanisms:
 
-- Claude depends on the Stop `asyncRewake` rewake.
+- Claude depends on the Stop and `SessionStart` resume `asyncRewake` rewake.
+  A process started fresh with a live fleet and no prompt still arms nothing until its first turn ends.
 - Cursor depends on its awaited stop-hook park.
 - Grok retains native background-completion notifications.
 - Codex retains bounded foreground checkpoints.
 
-[`verification/supervision.md`](verification/supervision.md#watcher-continuity) records the current cross-harness live evidence, the dated Stop-owned Claude auto-arm results, and exact opt-in commands.
+[`verification/supervision.md`](verification/supervision.md#watcher-continuity) records the current cross-harness live evidence, the dated Claude auto-arm results, and exact opt-in commands.

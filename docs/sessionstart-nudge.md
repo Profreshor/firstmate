@@ -83,8 +83,11 @@ This routing deliberately inverts the previous nudge matcher, which fired on `st
 
 Two records together are the idempotency interlock for the whole scheme:
 
-- Current harness ownership of the lock.
-- Its matching `state/.session-start-complete` record.
+- The current lock is in the hook's process ancestry.
+- Its regular `state/.session-start-complete` record names that same numeric lock pid.
+
+The nudge stays silent only when both records prove the current session completed the digest.
+This prevents a resume auto-arm reclaim from suppressing the ordinary SessionStart instruction with a prior owner's completion record.
 
 The full digest updates the completion record in this order:
 
@@ -209,12 +212,13 @@ It does this in its own separate, hard-coded loop, independent of two other owne
 - The shared sixteen-hop ancestry walk in `bin/fm-session-lock-lib.sh` that `bin/fm-lock.sh` uses for anchor selection and ownership.
 - Pi's `lockOwnership()`.
 
-If the lock names a live pid in that ancestry, session start already ran in this harness session and the wrapper stays silent.
+The wrapper stays silent only when the lock names a live pid in that ancestry and the regular completion record names that same pid.
 
 ### Exit codes
 
 Every ordinary transport path in both wrappers exits 0, including malformed state and adapter errors.
-The reason is that a Claude SessionStart exit 2 blocks session initialization.
+The reason is that a synchronous Claude SessionStart exit 2 blocks session initialization.
+The separate `asyncRewake` resume entry below is not one of these wrappers: its exit 2 opens a turn on the initialized session instead.
 
 The run wrapper's internal `--pi-prerequisite` mode uses silent exit 3 only for an intentional gate or scope stand-down.
 That exit lets Pi distinguish ineligibility from an eligible empty native result.
@@ -237,6 +241,7 @@ Each subsection below gives one harness surface's tier, its tracked transport, a
 Claude is a run-tier harness.
 `.claude/settings.json` registers one unmatched `SessionStart` hook, invoked through `CLAUDE_PROJECT_DIR` with a 180s timeout.
 The wrapper reads `source` from the hook payload.
+A second `resume`-matched entry starts monitoring and owns no session-start delivery; [`watcher-continuity.md`](watcher-continuity.md#claude-session-resume) owns it.
 Native stdout context injection is supported.
 Claude caps one hook output string at 10,000 characters.
 Above the cap the model receives a preview of the first 2,000 characters plus the path of a saved file, and is not asked to read that file.
@@ -390,9 +395,10 @@ It proves the nudge wrapper's silence for these cases:
 - Both gate signals.
 - An unmarked linked worktree.
 - A missing state directory.
-- An already-owned lock.
+- An already-owned lock with a matching completion record.
 
 It also proves the nudge wrapper's exact U+2063 `FIRSTMATE_OP:`-prefixed, `session-start`-typed one-line output.
+It proves stale-owner recovery followed by a prior owner's completion record still emits that instruction.
 
 It separately proves the run wrapper's silence for the gate environment and an unmarked linked worktree, including the internal Pi prerequisite's explicit silent stand-down.
 It proves the run wrapper creates a missing state directory on a fresh primary and delivers the full digest, while an unmarked linked worktree gets none.

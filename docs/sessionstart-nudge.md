@@ -212,7 +212,7 @@ It does this in its own separate, hard-coded loop, independent of two other owne
 - The shared sixteen-hop ancestry walk in `bin/fm-session-lock-lib.sh` that `bin/fm-lock.sh` uses for anchor selection and ownership.
 - Pi's `lockOwnership()`.
 
-If the lock names a live pid in that ancestry, session start already ran in this harness session and the wrapper stays silent.
+The wrapper stays silent only when the lock names a live pid in that ancestry and the regular completion record names that same pid.
 
 ### Exit codes
 

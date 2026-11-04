@@ -36,7 +36,7 @@ test_supervision_host_protocol_on_a_claude_home_unless_off() {
   assert_equals "$(FM_HOME="$home" FM_CONFIG_OVERRIDE="$config" "$RENDER" --harness claude)" "$hosted" \
     "a claude home without config/supervision-host must render exactly what an opted-in claude home renders"
   assert_contains "$hosted" "- Supervision host: on;" "an opted-in claude home did not render the host state line"
-  assert_contains "$hosted" "Mode: Claude Stop-hook-owned supervision." "the host protocol replaced the claude protocol instead of adding to it"
+  assert_contains "$hosted" "Mode: Claude Stop-and-resume-hook-owned supervision." "the host protocol replaced the claude protocol instead of adding to it"
   assert_contains "$hosted" "supervision-host: cycle boundary" "the host protocol did not tell main how to handle a park boundary"
   assert_contains "$hosted" "never run the return from it" "the host protocol did not say a handed-back wake is not the captain's return"
   [ "$(printf '%s\n' "$hosted" | grep -vF -e '- Supervision host: on;' | head -n "$(printf '%s\n' "$plain" | wc -l)")" = "$plain" ] \
@@ -76,7 +76,11 @@ test_supervision_host_protocol_on_every_arm_owner() {
     body=$(printf '%s\n' "$hosted" | sed -n '/^Supervision host: on for this home/,$p')
     [ -n "$body" ] || fail "$harness: the host protocol is missing"
     printf '%s\n' "$body" | grep -E '^\{[a-z,]+\} ' >/dev/null && fail "$harness: a harness tag leaked into the rendered protocol: $body"
-    [ "$(printf '%s\n' "$body" | grep -c 'runs the supervision host')" -eq 1 ] \
+    case "$harness" in
+      claude) arm_owner='hooks run the supervision host' ;;
+      *) arm_owner='runs the supervision host' ;;
+    esac
+    [ "$(printf '%s\n' "$body" | grep -c "$arm_owner")" -eq 1 ] \
       || fail "$harness: the protocol must name exactly one arm owner: $body"
     [ "$(printf '%s\n' "$body" | grep -c '^ *Only a wake the host hands back reaches you')" -eq 1 ] \
       || fail "$harness: the protocol must name exactly one wake path: $body"

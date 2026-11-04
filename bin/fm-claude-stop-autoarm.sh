@@ -239,7 +239,7 @@ SUPERSEDE_OPEN=
 if [ "$RECOVER_SESSION_LOCK" -eq 1 ]; then
   "$SCRIPT_DIR/fm-lock.sh" >/dev/null 2>&1 || exit 0
   fm_session_lock_owned_by_self "$STATE" || exit 0
-  SUPERSEDE_OPEN=supersede-open
+  SUPERSEDE_OPEN='supersede-open'
 fi
 
 # --- single-flight generation claim --------------------------------------------

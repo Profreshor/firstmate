@@ -165,6 +165,56 @@ test_create_task_app_labels() {
   pass "create_task: workers of a home in the app share one crew space and tab"
 }
 
+# crew_tabs <address>...: the crew-tab suffix each terminal was labelled with.
+crew_tabs() {
+  local hash=${HOMETAG##*-} address tabs=""
+  for address in "$@"; do
+    tabs="$tabs $(jq -r --arg a "$address" '.terminals[$a].labels["herdr.tab"]' "$FM_HC_STATE")"
+  done
+  printf '%s' "${tabs# }" | sed "s/tb${hash}//g"
+}
+
+test_create_task_crew_tab_cap() {
+  reset_hc
+  local hash=${HOMETAG##*-} i default_cap config="$HOME_DIR/config/herdr-presentation-spaces"
+  mkdir -p "$HOME_DIR/config"
+  printf 'crew:2\n' > "$config"
+  add_foreign_terminal t1
+  set_terminal t1 '.labels = {"herdr.space": "spcaptain", "herdr.tab": "tbcaptain"}'
+  # Another home's terminal in the same tab id must not use up this home's slots.
+  add_foreign_terminal t90
+  set_terminal t90 ".labels = {fm_home: \"someone-else\", \"herdr.tab\": \"tb${hash}crew\"}"
+  for i in 1 2 3 4 5; do
+    HC_TERMINAL_ID=t1 new_task "cap$i" >/dev/null || fail "create_task failed"
+  done
+  assert_equals "crew crew crew2 crew2 crew3" "$(crew_tabs t2 t3 t4 t5 t6)" "crew:2 must fill each tab to the cap in order"
+  assert_equals "sp${hash}crew" "$(jq -r '.terminals.t6.labels["herdr.space"]' "$FM_HC_STATE")" "every crew tab stays in the one crew space"
+  set_terminal t2 '.state = "finished"'
+  HC_TERMINAL_ID=t1 new_task refill >/dev/null || fail "create_task failed"
+  assert_equals "crew" "$(crew_tabs t7)" "a freed slot in an earlier tab must be refilled first"
+
+  reset_hc
+  add_foreign_terminal t1
+  set_terminal t1 '.labels = {"herdr.space": "spcaptain", "herdr.tab": "tbcaptain"}'
+  FM_HC_FAKE_FAIL=ls HC_TERMINAL_ID=t1 new_task unreadable >/dev/null 2>&1 && fail "a failed crew-tab listing must refuse the spawn"
+  assert_equals '["t1"]' "$(jq -c '.terminals | keys' "$FM_HC_STATE")" "a failed crew-tab listing must not create a worker"
+  assert_no_grep $'\x1frun\x1f' "$FM_HC_LOG" "a failed crew-tab listing must not invoke hc run"
+
+  reset_hc
+  printf 'crew\n' > "$config"
+  add_foreign_terminal t1
+  set_terminal t1 '.labels = {"herdr.space": "spcaptain", "herdr.tab": "tbcaptain"}'
+  default_cap=$(fm_backend_source herdr && printf '%s' "$FM_BACKEND_HERDR_CREW_PANE_CAP_DEFAULT")
+  i=0
+  while [ "$i" -le "$default_cap" ]; do
+    i=$((i + 1))
+    HC_TERMINAL_ID=t1 new_task "plain$i" >/dev/null || fail "create_task failed"
+  done
+  assert_equals "crew crew2" "$(crew_tabs "t$((default_cap + 1))" "t$((default_cap + 2))")" "plain crew must use herdr's default cap"
+  rm -f "$config"
+  pass "create_task: crew tabs fill, refill, and refuse an unreadable placement"
+}
+
 test_foreign_terminal_is_never_touched() {
   reset_hc
   add_foreign_terminal t1
@@ -405,6 +455,7 @@ test_secondmate_spawn_refuses_herdr_core() {
 test_version_gate
 test_create_task_labels_and_detaches
 test_create_task_app_labels
+test_create_task_crew_tab_cap
 test_foreign_terminal_is_never_touched
 test_expected_label_binds_the_task
 test_agent_state

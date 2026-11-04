@@ -2211,7 +2211,7 @@ A second pass on 2026-11-02 (hc 0.1.13, Linux x86_64, Claude Code at the Haiku m
 | Wrapped ship foreground | `hc get <t> --json` on a live ship worker | `foreground` is `{"name":"sh","argv":["/bin/sh","-c","... claude ..."]}` or the same with `codex`, beside `"status":{"app":"claude-code"...}` or `{"app":"codex","state":"idle"}`; the adapter reads `alive` |
 | Node-bundled Codex | `hc get <t> --json` on a Codex scout | `foreground.argv` is `["node","/usr/bin/codex"]` with `"status":{"app":"codex","state":"idle"}`; the adapter reads `alive busy=idle` |
 | Status clears on exit | ending the harness process under an `sh -c` wrapper | `status` became `null` and the foreground became the interactive `zsh -i -l`, at a pid other than the terminal's own `pid`; the adapter reads `dead` |
-| App labels | `fm-spawn.sh <id> <project> --scout --backend herdr-core` | the worker carried `herdr.space=sp<hash>crew` and `herdr.tab=tb<hash>crew`, and the app then added its own `where` label to it |
+| Capped app labels | `bash tests/fm-backend-herdr-core.test.sh` | with `crew:2`, five workers filled `tb<hash>crew`, `tb<hash>crew`, `tb<hash>crew2`, `tb<hash>crew2`, and `tb<hash>crew3`; a freed earlier slot was refilled, plain `crew` used Herdr's default cap, and an unreadable occupancy lookup created no worker |
 | Idle doorbell | `fm-send.sh <id> 'Live steer check: reply with the single word PINEAPPLE in chat, then wait.'` to an idle Claude and an idle Codex scout | both doorbells landed, both workers answered `PINEAPPLE` and moved the message to `handled/` |
 
 `tests/fm-backend-herdr-core.test.sh` is the portable regression for these behaviors; repeat the end-to-end pass above after an hc upgrade to refresh this record.

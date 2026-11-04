@@ -1282,7 +1282,7 @@ test_lock_recovery_supersedes_an_orphaned_open_claim() {
   record_autoarm_v2_claim "$dir" 464 "$pid" arming "$pid" || fail "could not record a v2 claim"
   : > "$dir/state/.last-watcher-beat"
   out=$(printf '%s\n' '{"session_id":"resumed","hook_event_name":"SessionStart","source":"resume"}' \
-    | FM_HOME="$dir" "$FAKE_CLAUDE" -c '"$FM_HOME/bin/fm-claude-stop-autoarm.sh"' 2>&1); status=$?
+    | FM_HOME="$dir" "$FAKE_CLAUDE" -c '"$FM_HOME/bin/fm-claude-stop-autoarm.sh"; status=$?; :; exit "$status"' 2>&1); status=$?
   kill -0 "$pid" 2>/dev/null || fail "taking over from the orphan must not signal it"
   kill "$pid" 2>/dev/null || true
   wait "$pid" 2>/dev/null || true

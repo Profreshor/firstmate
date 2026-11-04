@@ -214,7 +214,8 @@ If the lock names a live pid in that ancestry, session start already ran in this
 ### Exit codes
 
 Every ordinary transport path in both wrappers exits 0, including malformed state and adapter errors.
-The reason is that a Claude SessionStart exit 2 blocks session initialization.
+The reason is that a synchronous Claude SessionStart exit 2 blocks session initialization.
+The separate `asyncRewake` resume entry below is not one of these wrappers: its exit 2 opens a turn on the initialized session instead.
 
 The run wrapper's internal `--pi-prerequisite` mode uses silent exit 3 only for an intentional gate or scope stand-down.
 That exit lets Pi distinguish ineligibility from an eligible empty native result.
@@ -237,6 +238,7 @@ Each subsection below gives one harness surface's tier, its tracked transport, a
 Claude is a run-tier harness.
 `.claude/settings.json` registers one unmatched `SessionStart` hook, invoked through `CLAUDE_PROJECT_DIR` with a 180s timeout.
 The wrapper reads `source` from the hook payload.
+A second `resume`-matched entry starts monitoring and owns no session-start delivery; [`watcher-continuity.md`](watcher-continuity.md#claude-session-resume) owns it.
 Native stdout context injection is supported.
 Claude caps one hook output string at 10,000 characters.
 Above the cap the model receives a preview of the first 2,000 characters plus the path of a saved file, and is not asked to read that file.

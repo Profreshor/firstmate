@@ -88,6 +88,19 @@ The hook fires on every Stop.
 On each Stop, an eligible primary with supervision need admits one home-scoped owner, which foregrounds `bin/fm-watch-arm.sh` inside the hook-owned process tree.
 While supervision is still needed and away mode remains inactive, an actionable close wakes the idle session through exit 2.
 
+### Claude session resume
+
+A new process resuming a Claude session has no turn end to arm from until someone types, so `.claude/settings.json` also registers the same hook for `SessionStart` with the `resume` matcher.
+It runs every rule of the Stop path, so it reclaims a dead owner's lock, attaches to a healthy cycle, and stays inert beside another live session.
+Its exit 2 opens a turn on the idle resumed session with nobody typing, on both the interactive and the background surface, so a wake that lands during or after the restart gets handled.
+That turn also carries the resume's session-start instruction from [`sessionstart-nudge.md`](sessionstart-nudge.md#nudge-wrapper-lock-check), because nothing else gave the new process a digest.
+A resume with no wake to deliver only parks monitoring, and session start then runs at the next turn.
+[Verification](verification/supervision.md#claude-session-resume-2026-11-04) holds the real-process evidence.
+
+A hard-killed Claude leaves its parked hook running, with a live identity and a watcher that keeps the beacon fresh, so its generation claim reads as open and would defer every later firing.
+That hook's exit 2 has no session left to wake.
+A firing that has just recovered the session lock has proved the claim belongs to the dead session, so it takes the next generation rather than deferring, and the orphan goes silent like any superseded owner.
+
 ### Claude session-lock ownership
 
 The hook handles the session lock as follows:
@@ -525,7 +538,8 @@ OpenCode support targets persistent TUI sessions rather than headless `opencode 
 
 The other harnesses rely on these mechanisms:
 
-- Claude depends on the Stop `asyncRewake` rewake.
+- Claude depends on the Stop and `SessionStart` resume `asyncRewake` rewake.
+  A process started fresh with a live fleet and no prompt still arms nothing until its first turn ends.
 - Cursor depends on its awaited stop-hook park.
 - Grok retains native background-completion notifications.
 - Codex retains bounded foreground checkpoints.

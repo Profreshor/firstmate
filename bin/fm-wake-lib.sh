@@ -1895,9 +1895,11 @@ fm_autoarm_midturn_healthy() {  # <state-dir> [grace]
 # short micro-mutex hold. Returns 0 with FM_AUTOARM_MY_GEN set on success, 2
 # when a competing claimant won the race (the ledger holds an open claim), and
 # 1 when the micro-mutex is contended, the mandatory identity cannot be
-# computed, or the write failed.
-fm_autoarm_claim_next() {  # <state-dir> [grace]
-  local state=$1 grace=${2:-${FM_GUARD_GRACE:-300}} lock epoch pid gen identity tmp
+# computed, or the write failed. A third argument of supersede-open takes the
+# generation even from an open claim, for a caller that has proved that claim's
+# session dead; its owner goes silent like any other superseded one.
+fm_autoarm_claim_next() {  # <state-dir> [grace] [supersede-open]
+  local state=$1 grace=${2:-${FM_GUARD_GRACE:-300}} supersede=${3:-} lock epoch pid gen identity tmp
   lock="$state/.claude-autoarm.lock"
   epoch="$state/.claude-autoarm-epoch"
   FM_AUTOARM_MY_GEN=
@@ -1908,7 +1910,7 @@ fm_autoarm_claim_next() {  # <state-dir> [grace]
   identity=$(fm_pid_identity "$pid" 2>/dev/null) || return 1
   [ -n "$identity" ] || return 1
   fm_lock_try_acquire "$lock" || return 1
-  if fm_autoarm_claim_open "$state" "$grace"; then
+  if [ "$supersede" != supersede-open ] && fm_autoarm_claim_open "$state" "$grace"; then
     fm_lock_release "$lock"
     return 2
   fi

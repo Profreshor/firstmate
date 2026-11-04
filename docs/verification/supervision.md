@@ -661,6 +661,48 @@ tests/fm-claude-stop-autoarm.test.sh
 tests/fm-turnend-guard.test.sh
 ```
 
+### Claude session resume, 2026-11-04
+
+Recorded on Claude Code 2.1.318 with the haiku model, in isolated lab copies of this checkout, never a live fleet home.
+
+The incident: a new process resumed an idle primary session at 10:56:48 local, monitoring armed only at a turn end, and no wake reached the session for about an hour.
+
+The guard runs the real hook, host, and watcher in an interactive session on a private tmux server:
+
+```bash
+FM_CLAUDE_RESUME_LIVE_E2E=1 FM_CLAUDE_RESUME_LIVE_CONTROL_REF=main tests/fm-claude-resume-supervision-live-e2e.test.sh
+```
+
+| Scenario | Registration or code | Result with nobody typing |
+| --- | --- | --- |
+| Restart, event during the downtime | `main` | After 60s no rewake, no command, the lock still names the dead process, 0 watchers |
+| Restart, event during the downtime | this change | Lock reclaimed, rewake delivered, the turn ran session start then the drain, 1 watcher |
+| SIGKILL, old hook and host still alive | this change | Generation 1 to 2, old hook and host gone, 1 watcher, a later event drained by the resumed session |
+| SIGKILL, old hook and host still alive | this change without the takeover | The resume deferred to the old claim and started no host |
+
+A one-off script ran the same hook on the background surface, whose parent chain matched the incident's (`claude` daemon under `systemd --user`):
+
+| Action | Result with nobody typing |
+| --- | --- |
+| `claude --bg --resume <id>` with an event from the downtime | Lock reclaimed, the turn ran session start then the drain, 1 watcher |
+| `claude respawn <id>` on the idle session | Old hook reaped, new process reclaimed the lock, 1 watcher, a later event drained |
+| SIGKILL of the worker, two runs | Old hook stayed alive, and no new process started within 120 to 150 seconds; the second run's roster no longer listed the session |
+
+What these runs do not establish:
+
+- The resume hook and the session-start nudge run in parallel, so a hook that reclaims the lock first would silence the nudge; every run here delivered the nudge, so that race stays unobserved and unguarded.
+- The model's handling after the drain follows the digest it just read, so the guard treats the drain as proof of delivery and the acknowledgement as evidence only.
+- The orphan takeover was exercised only on the interactive surface, because no background run produced a new process beside a surviving hook.
+- An earlier stub-hook probe on the background surface did see the daemon restart a SIGKILLed worker (`attempt: 2`) beside a surviving hook, and the difference from the two runs above is unexplained.
+- `claude respawn` reaped the old hook, so if the incident's restart behaves the same way it left no orphan, and the takeover defends against a crash rather than fixing the incident path.
+- A process started fresh with a live fleet and no prompt still arms nothing until its first turn ends.
+
+Portable coverage:
+
+```text
+tests/fm-claude-stop-autoarm.test.sh
+```
+
 ## Supervision host
 
 This pre-flip evidence supports [supervision-host.md](../supervision-host.md)'s Claude engine, away-wake path, and failure direction; its no-file baseline describes the earlier opt-in release, not the current Claude default.

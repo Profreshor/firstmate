@@ -4832,7 +4832,7 @@ SH
 # decoded wherever it is shown, so prose with every awkward character survives.
 test_hold_reason_round_trips_awkward_characters() {
   local home id reason stored json shown start verb fields out raw rc raw_rc mode
-  local title legacy body quoted_reason quoted_title quoted_legacy expected_reason until_args=()
+  local title legacy body quoted_reason quoted_title expected_reason until_args=()
   local malformed index=0 malformed_reasons=(
     'fm-hold-v1:/w==' 'fm-hold-v1:bm9ydGg=$' 'fm-hold-v1:bm9ydGg' 'fm-hold-v1:Zh=='
   )
@@ -4841,7 +4841,6 @@ test_hold_reason_round_trips_awkward_characters() {
   legacy='Visit https://example.test/%28literal%29 and %0A; fm-hold-v1:bm9ydGg='
   body=$'fm-hold-v1:bm9ydGg=\n  hold_reason: "%28"\n'
   quoted_title=$(jq -cn --arg value "$title" '$value')
-  quoted_legacy=$(jq -cn --arg value "$legacy" '$value')
   tasks_in "$home" add sample-legacy-call "$title" --kind captain --repo sample >/dev/null \
     || fail "could not create the legacy call"
   tasks_in "$home" hold sample-legacy-call --reason "$legacy" --kind captain >/dev/null \
@@ -4975,13 +4974,18 @@ SH
   out=$(PATH="$home/fakebin:$PATH" FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
     FM_DATA_OVERRIDE="$home/data" FM_CONFIG_OVERRIDE="$home/config" \
     "$ROOT/bin/fm-afk-return.sh" check 2>&1 || true)
-  assert_contains "$out" "$quoted_reason" "return brief changed the encoded reason"
-  assert_contains "$out" "$quoted_title" "return brief changed the title"
-  assert_contains "$out" "$quoted_legacy" "return brief changed the legacy reason"
+  # The return brief lists each held item as one line and points at the public
+  # read above for every full reason, so it shows the title verbatim and no
+  # stored reason, decoded or not.
+  assert_contains "$out" "sample-legacy-call | $title | captain | until -" "return brief changed the title"
+  assert_contains "$out" "every full hold reason: bin/fm-tasks-axi.sh list --state held --fields hold_kind,hold_reason,hold_until" \
+    "return brief did not point at the full hold reasons"
+  assert_not_contains "$out" "$legacy" "return brief printed a full hold reason"
   for malformed in "${malformed_reasons[@]}"; do
-    assert_contains "$out" "$malformed" "return brief changed historical literal $malformed"
+    case "$title" in *"$malformed"*) continue ;; esac
+    assert_not_contains "$out" "$malformed" "return brief printed historical literal reason $malformed"
   done
-  pass "marked hold reasons round-trip through public reads, fleet, startup, and return without changing other fields"
+  pass "marked hold reasons round-trip through public reads, fleet, and startup, and the return brief keeps titles verbatim"
 }
 
 # Done retention moves an answered captain call into the Done archive, where

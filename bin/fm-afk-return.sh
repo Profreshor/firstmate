@@ -71,7 +71,7 @@ RETURN_GRACE=${FM_GUARD_GRACE:-300}
 # shellcheck source=bin/fm-afk-contract.sh
 . "$SCRIPT_DIR/fm-afk-contract.sh"
 CONTRACT="$SCRIPT_DIR/fm-afk-contract.sh"
-# Functions only: decodes the stored hold reasons the catch-up listing shows.
+# Functions only: renders the held listing the return brief shows.
 # shellcheck source=bin/fm-hold-reason-lib.sh
 . "$SCRIPT_DIR/fm-hold-reason-lib.sh"
 
@@ -588,14 +588,15 @@ render_return_brief() {  # <evidence-file> <blockers-file> <since-epoch> <drain-
   count=0
   HELD_READ_FAILED=0
   HELD_READ_PATH=$(fm_backlog_file "$DATA" 2>/dev/null || printf '%s/backlog.md' "$DATA")
-  if held=$(fm_backlog_row_list "$DATA" --state held --fields hold_kind,hold_reason,hold_until 2>&1); then
+  if held=$(fm_backlog_row_list "$DATA" --state held --fields hold_kind,hold_until 2>&1); then
     rows=$(printf '%s\n' "$held" | strip_axi_help | grep -v '^count: ' | grep -v '^tasks\[0\]' || true)
     if printf '%s\n' "$held" | grep -q '^count: 0'; then
       :
     elif [ -n "$rows" ]; then
       count=$((count + 1))
       printf '  held in the backlog:\n'
-      printf '%s\n' "$rows" | fm_hold_reason_decode_stream | sed 's/^/    /'
+      printf '%s\n' "$held" | fm_hold_compact_stream \
+        | sed 's/^/    /'
     fi
   else
     held_err=$(printf '%s' "$held" | head -1 | clean_field)

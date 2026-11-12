@@ -61,6 +61,18 @@ elif cmd == "read":
 elif cmd in ("send", "keys"):
     t = find(args[1])
     t.setdefault("typed", []).append([cmd] + args[2:])
+    if os.environ.get("FM_HC_FAKE_KIMI"):
+        ready = "Welcome to Kimi Code!\ncontext: %s%%\n╭────────────────╮\n│ >              │\n╰────────────────╯"
+        if cmd == "keys" and args[2:] == ["enter"]:
+            t["trust_accepted"] = True
+            t["screen"] = ready % "0"
+        elif cmd == "send" and args[2].startswith("Read the brief at "):
+            if not t.get("trust_accepted"):
+                sys.exit("brief sent before folder trust was accepted")
+            t["screen"] = ready % "1"
+        elif cmd == "send":
+            with open(os.environ["FM_HC_FAKE_KIMI"]) as f:
+                t["screen"] = f.read()
     after = t.get("after_" + cmd)
     if after:
         t["screen"] = after.pop(0)
@@ -383,6 +395,32 @@ EOF
   pass "finished terminal relaunch: replaces the exit in its recorded session and worktree"
 }
 
+test_kimi_trust_relaunch() {
+  reset_hc
+  local id=kimi-trust-relaunch project="$TMP_ROOT/kimi-project" wt="$TMP_ROOT/kimi-worktree" target out
+  fm_git_worktree "$project" "$wt" "$id"
+  mkdir -p "$HOME_DIR/data/$id" "$HOME_DIR/config" "$TMP_ROOT/kimi-home/.kimi-code"
+  printf 'default_model = "test"\n' > "$TMP_ROOT/kimi-home/.kimi-code/config.toml"
+  printf '# Task\n## Captain\047s intent\nExercise Kimi trust and delivery.\n\n## Firstmate spec\nUse the fake core endpoint.\n' > "$HOME_DIR/data/$id/brief.md"
+  fm_fake_exit0 "$FAKEBIN" kimi
+  target=$(HC_SESSION=lab new_task "$id")
+  set_terminal t2 '.state = "finished" | .foreground = null'
+  {
+    printf 'window=%s\nendpoint_task_id=%s\n' "$target" "$id"
+    printf 'worktree=%s\nproject=%s\nharness=kimi\nkind=ship\nmode=no-mistakes\nyolo=off\nbackend=herdr-core\nherdr_core_session=lab\nherdr_core_terminal=t2\n' "$wt" "$project"
+  } > "$HOME_DIR/state/$id.meta"
+  out=$(HOME="$TMP_ROOT/kimi-home" FM_SPAWN_NO_GUARD=1 \
+    FM_HC_FAKE_KIMI="$ROOT/tests/captures/kimi-code-2.3.0/plain.pane" \
+    FM_KIMI_READY_POLLS=4 FM_KIMI_DELIVERY_POLLS=2 FM_KIMI_POLL_INTERVAL=0 \
+    "$ROOT/bin/fm-spawn.sh" "$id" --relaunch --harness kimi 2>&1) \
+    || fail "Kimi must accept trust and deliver through the retained core adapter: $out"
+  assert_equals '["enter"]' "$(jq -c '[.terminals.t3.typed[] | select(.[0] == "keys") | .[1]]' "$FM_HC_STATE")" \
+    "trust must receive Enter exactly once, without an extra launch or delivery Enter"
+  assert_equals 1 "$(jq '[.terminals.t3.typed[] | select(.[0] == "send" and (.[1] | startswith("Read the brief at ")))] | length' "$FM_HC_STATE")" \
+    "the brief must be delivered once after accepting trust"
+  pass "Kimi relaunch: core sends the trust Enter and verifies brief delivery"
+}
+
 test_list_live_is_home_scoped() {
   reset_hc
   local live
@@ -439,6 +477,7 @@ test_send_text_submit
 test_send_key_normalizes
 test_kill
 test_finished_terminal_relaunch
+test_kimi_trust_relaunch
 test_list_live_is_home_scoped
 test_endpoint_validation_and_absence
 test_explicit_selection

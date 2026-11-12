@@ -5864,7 +5864,7 @@ kimi_wait_for_ready() {
       # affirmative selection is re-sent on every poll the complete dialog is
       # still on screen. The dialog's own disappearance is the postcondition:
       # once it clears, this branch cannot fire again.
-      if [ "$BACKEND" != herdr-core ] && ! spawn_send_key "$T" Enter; then
+      if ! spawn_send_key "$T" Enter; then
         KIMI_READY_FAILURE_DETAIL="kimi trust dialog was seen but the affirmative selection could not be submitted"
         return 1
       fi

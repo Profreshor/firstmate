@@ -1,0 +1,16 @@
+# 09:26:47 lab session fm-lab-fm-sh-herdr-retr-2891572-27817 provisioned (fleet tripwire: default)
+# 09:27:02 primary step 1: primary idle (claude pid 2892782, 2.1.322 (Claude Code), model haiku) in pane fm-lab-fm-sh-herdr-retr-2891572-27817:w1:p1; tracked Stop hook registered; config/supervision-host and config/supervision-handoff-ack present; host pid 2898755 parked on watcher 2898972
+# 09:27:02 primary transcript: /home/curtis/.claude/projects/-tmp-fm-sh-herdr-live-f9tRML-primary-fm/92ba35bf-28f8-4e86-8859-a5e6170450d9.jsonl
+# 09:27:02 step 2: needs-decision appended at 1794497222; the attended pass-through hands back and queues the acknowledged check
+# 09:27:04 step 2: pending token host-2898755-1794497222 recorded; ledger: epoch=1 owner_pid=2898139 outcome=arming updated_at=1794497222 owner_session_id=92ba35bf-28f8-4e86-8859-a5e6170450d9 claude_session=92ba35bf-28f8-4e86-8859-a5e6170450d9
+# 09:27:04 step 3: recorded completed epoch=2 over the hook's claim (pid 2898139); ledger: epoch=2 owner_pid=2891443 outcome=clean updated_at=1794497224 owner_session_id=92ba35bf-28f8-4e86-8859-a5e6170450d9
+# 09:27:04 step 3: detached owner pid 2900601 verified running on the superseded generation's arm
+# 09:27:07 step 3: no Stop-hook rewake reached the transcript; owner 2900601 alive on watcher 2900750 (linux-starttime=232876155 cmdline-hex=62617368002f746d702f666d2d73682d68657264722d6c6976652e663974524d4c2f7072696d6172792f666d2f62696e2f666d2d77617463682e736800), recorded arm 2900734; pending host-2898755-1794497222 unchanged
+# 09:27:14 step 4: retry confirmed delivery - handoff log: 1794497234	retry	host-2898755-1794497222	empty
+# 09:27:14 step 4: doorbell delivered as a primary message at 1794497234
+# 09:27:19 step 5: primary drained and acknowledged - commands: bin/fm-wake-drain.sh;bin/fm-wake-drain.sh --ack-through 3 --recovery-generation 2898972.1794497223.bo1nqn;
+# 09:27:19 step 5: pending marker removed only after the acknowledgement
+# 09:27:20 step 5: owner 2900601 exited; queued check consumed; the doorbell turn ended
+# 09:27:21 step 6: turn end re-armed: 1794497241	start	gen=host-2912578-1794497241; watcher 2913235 under host 2912578
+# 09:27:21 proof complete: lost hand-back -> herdr retry delivered to fm-lab-fm-sh-herdr-retr-2891572-27817:w1:p1 -> drained -> acknowledged -> pending cleared -> one watcher retained
+ok - herdr live e2e: a lost Claude hand-back is recovered by the detached retry, acknowledged, and supervision retained

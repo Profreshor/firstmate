@@ -1,0 +1,18 @@
+ok - version gate: accepts >= 0.1.13, refuses older, unparseable, and missing hc
+ok - create_task: detached, labelled, session-pinned, and refuses a duplicate
+ok - create_task: workers of a home in the app share one crew space and tab
+ok - create_task: crew tabs fill, refill, and refuse an unreadable placement
+ok - ownership: a terminal without this home's labels is never read, typed into, killed, or removed
+ok - target_ready: an expected label must match the terminal's task label
+ok - agent_state: alive, dead, ambiguous, unreadable, and missing from hc's foreground and status facts
+ok - busy_state: native working is busy only with a harness, or its launch wrapper, in the foreground
+ok - capture, visible capture, and current path
+ok - send_text_submit: one paste-and-submit, Enter-only retries
+ok - send_key: Escape, C-c, and C-u map to hc key names
+ok - kill: ends and removes the owned terminal, quiet when gone, loud when it survives
+ok - finished terminal relaunch: replaces the exit in its recorded session and worktree
+ok - Kimi relaunch: core sends the trust Enter and verifies brief delivery
+ok - list_live: recorded-inventory discovery is scoped to this home's label
+ok - endpoint record validation, control capabilities, and absence proof
+ok - selection: explicit herdr-core keeps the fork adapter
+ok - fm-spawn.sh: refuses backend=herdr-core for --secondmate spawns

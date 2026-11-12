@@ -183,6 +183,11 @@ case "${1:-}" in
         task_header 1
         printf '%s\n' '  compact-startup,in_flight,ship,firstmate,Compact startup digest,none,captain,captain choice pending'
         ;;
+      *'--state held --fields hold_kind,hold_until'*)
+        printf 'count: 1\n'
+        printf 'tasks[1]{id,state,kind,repo,title,hold_kind,hold_until}:\n'
+        printf '%s\n' '  held-queued,queued,ship,firstmate,"Held queued work, waiting\n... (truncated, 90 chars total - use show held-queued --full to see complete text)",captain,2099-01-31'
+        ;;
       *'--state held'*)
         task_header 1
         printf '%s\n' '  held-queued,queued,ship,firstmate,Held queued work,none,captain,captain choice pending'
@@ -2403,6 +2408,41 @@ SH
 
 # --- context re-emit (--reemit) ----------------------------------------------
 
+# A re-emit follows a startup that already listed every held row with its
+# reason, so it lists each held row as one line with the count and the command
+# that prints every reason; in-flight and blocked rows stay whole.
+test_reemit_lists_held_rows_one_line_each() {
+  local rec root home fakebin out log
+  rec=$(new_world reemit-held)
+  IFS='|' read -r root home fakebin <<FIXTURE
+$rec
+FIXTURE
+  make_fake_toolchain "$fakebin"
+  make_fake_tasks_axi_compact "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  write_long_body_backlog "$home/data/backlog.md"
+  log="$home/tasks-axi.log"
+
+  out=$(FM_FAKE_TASKS_AXI_LOG="$log" FM_HOME="$home" FM_ROOT_OVERRIDE="$root" FM_FAKE_HARNESS_PID=$$ PATH="$fakebin:$BASE_PATH" \
+    env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
+    "$SESSION_START" --reemit)
+
+  assert_contains "$out" "compact backlog listing (tasks-axi; done rows omitted; every in-flight and blocked row shown in full; held rows one line each; ready queued bounded to 20; task bodies omitted)" \
+    "the re-emit backlog header did not say how held rows are listed"
+  assert_contains "$out" "1 held item(s), one line each (id | title | hold kind | until); every full hold reason: bin/fm-tasks-axi.sh list --state held --fields hold_kind,hold_reason,hold_until" \
+    "the re-emit held group did not give its count and the full-reason command"
+  assert_contains "$out" "  held-queued | Held queued work, waiting... | captain | until 2099-01-31" \
+    "the re-emit did not list the held row as one line"
+  assert_not_contains "$out" "truncated, 90 chars" "the re-emit kept tasks-axi's title truncation note"
+  assert_contains "$out" "compact-startup,in_flight,ship,firstmate,Compact startup digest,none,captain,captain choice pending" \
+    "the re-emit shortened the in-flight row"
+  assert_contains "$out" "blocked-followup,queued,scout,firstmate,Follow compact startup,compact-startup" \
+    "the re-emit shortened the blocked row"
+  assert_grep "--state held --fields hold_kind,hold_until" "$log" \
+    "the re-emit did not ask tasks-axi for the short held fields"
+  pass "--reemit lists held rows one line each with the full-reason command"
+}
+
 test_reemit_cue_survives_the_hook_output_preview() {
   local rec root home fakebin reemit normal head2k
   rec=$(new_world reemit-cue)
@@ -3158,5 +3198,6 @@ test_read_only_pi_compact_refreshes_against_its_own_session_identity
 test_codex_unreachable_reset_sources_do_not_claim_instruction_refresh
 test_agents_baseline_requires_sha256_and_successful_completion
 test_reemit_keeps_repair_ownership_with_the_lock_holder
+test_reemit_lists_held_rows_one_line_each
 
 echo "# fm-session-start.test.sh: all assertions passed"

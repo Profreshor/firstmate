@@ -444,8 +444,9 @@ test_return_brief_composes_from_record_store_and_held_set() {
   assert_not_contains "$out" 'still building' "the return brief rendered a silent routine outcome"
   assert_not_contains "$out" 'not executed' "the brief still calls the words inert"
   assert_not_contains "$out" 'clause' "the brief still speaks of clauses"
-  assert_contains "$out" 'fix-windows,queued,task' "the held backlog item was not listed under waiting on you"
-  assert_contains "$out" 'awaiting the captain on the merge' "the hold reason was not listed"
+  assert_contains "$out" $'  held in the backlog:\n    1 held item(s), one line each (id | title | hold kind | until); every full hold reason: bin/fm-tasks-axi.sh list --state held --fields hold_kind,hold_reason,hold_until\n      fix-windows | Fix the windows lane | captain | until -\n' \
+    "the held backlog item was not listed as one line under waiting on you"
+  assert_not_contains "$out" 'awaiting the captain on the merge' "the held listing printed the full hold reason"
   assert_contains "$out" 'other [key=pick] needs your decision: choose the target' "the open decision was not listed under waiting on you"
   assert_contains "$out" 'fix-windows: blocked on a token only the captain holds; held for return' "the captain-verdict outcome was not listed"
   assert_contains "$out" 'fix-windows [key=token] still blocked, firstmate remediates before ordinary work' "the blocker sharing a task with a captain outcome was exempted"

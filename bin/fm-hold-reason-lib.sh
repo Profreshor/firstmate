@@ -76,3 +76,55 @@ fm_hold_reason_decode_stream() {
     }
   ' "${1:-toon}"
 }
+
+# fm_hold_compact_stream <full-reasons command>: shorten a tasks-axi TOON held
+# listing to one line per item: id, title without tasks-axi's truncation note,
+# hold kind, and hold-until date, after one line with the count and the command
+# that prints every full reason. A hold whose until date has arrived is no
+# longer held to tasks-axi, so it is listed as ready work instead. A non-row
+# line passes through; the help block is dropped.
+fm_hold_compact_stream() {
+  perl -MJSON::PP -e '
+    use strict;
+    use warnings;
+    binmode STDIN, ":encoding(UTF-8)";
+    binmode STDOUT, ":encoding(UTF-8)";
+    my ($command) = @ARGV;
+    my $json = JSON::PP->new->allow_nonref;
+    my (@names, @rows, @other);
+    my $in_rows = 0;
+    sub value {
+      my ($raw) = @_;
+      return "" unless defined $raw;
+      return $raw unless $raw =~ /^"/;
+      my $decoded = eval { $json->decode($raw) };
+      return defined($decoded) ? $decoded : $raw;
+    }
+    while (my $line = <STDIN>) {
+      if ($line =~ /^tasks\[\d+\]\{([^}]*)\}:\n?$/) {
+        @names = split /,/, $1;
+        $in_rows = 1;
+        next;
+      }
+      if ($in_rows && $line =~ /^  (.*)\n?$/) {
+        my %row;
+        @row{@names} = map { value($_) } $1 =~ /("(?:[^"\\]|\\.)*"|[^,]+)/g;
+        my $title = $row{title} // "";
+        $title =~ s/\n\.\.\. \(truncated.*\z/.../s;
+        $title =~ s/\s*\n\s*/ /g;
+        my $until = $row{hold_until} // "";
+        $until = "-" if $until eq "";
+        push @rows, join " | ", $row{id} // "?", $title, $row{hold_kind} // "-", "until $until";
+        next;
+      }
+      $in_rows = 0;
+      last if $line =~ /^help\[/;
+      next if $line =~ /^count: \d+\n?$/;
+      push @other, $line;
+    }
+    printf "%d held item(s), one line each (id | title | hold kind | until); every full hold reason: %s\n",
+      scalar @rows, $command;
+    print "  $_\n" for @rows;
+    print @other;
+  ' "$1"
+}

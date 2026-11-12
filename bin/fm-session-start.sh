@@ -146,7 +146,13 @@
 #   - Every in-flight, held, and blocked row is listed IN FULL, with its
 #     hold_kind/hold_reason and blocked_by. Those are the rows AGENTS.md
 #     sections 7 and 10 make actionable at startup, so they are never bounded
-#     away.
+#     away. A --reemit follows a startup that already listed them, so it prints
+#     each held row as one line (fm_hold_compact_stream in
+#     bin/fm-hold-reason-lib.sh) with the count and the command for every full
+#     reason. tasks-axi lists a hold whose until date has arrived as ready
+#     work, not as held.
+#     Open decisions come from the status logs through the wake drain's OPEN
+#     DECISIONS section, not from this listing, and stay complete there.
 #   - Only the plain queued (dispatchable-now) listing is bounded, by
 #     FM_SESSION_START_QUEUED_LIMIT, default 20. Anything it omits is disclosed
 #     with an exact remainder count and the command that shows the rest, so a
@@ -518,22 +524,30 @@ print_ready_queued_bounded() {
 }
 
 print_backlog_tasks_axi_compact() {
-  local path=$1 in_flight held blocked ready err
+  local path=$1 in_flight held blocked ready err held_fields=$BACKLOG_FIELDS held_note='every in-flight, held, and blocked row shown in full'
+  if [ "$REEMIT" -eq 1 ]; then
+    held_fields=hold_kind,hold_until
+    held_note='every in-flight and blocked row shown in full; held rows one line each'
+  fi
   if ! in_flight=$(tasks-axi list --file "$path" --state in_flight --fields "$BACKLOG_FIELDS" 2>&1); then
     err=$in_flight
-  elif ! held=$(tasks-axi list --file "$path" --state held --fields "$BACKLOG_FIELDS" 2>&1); then
+  elif ! held=$(tasks-axi list --file "$path" --state held --fields "$held_fields" 2>&1); then
     err=$held
   elif ! blocked=$(tasks-axi list --file "$path" --state queued --blocked --fields "$BACKLOG_FIELDS" 2>&1); then
     err=$blocked
   elif ! ready=$(tasks-axi ready --file "$path" 2>&1); then
     err=$ready
   else
-    printf 'compact backlog listing (tasks-axi; done rows omitted; every in-flight, held, and blocked row shown in full; ready queued bounded to %s; task bodies omitted)\n' \
-      "$QUEUED_LIMIT"
+    printf 'compact backlog listing (tasks-axi; done rows omitted; %s; ready queued bounded to %s; task bodies omitted)\n' \
+      "$held_note" "$QUEUED_LIMIT"
     printf '\nin flight:\n'
     printf '%s\n' "$in_flight" | fm_hold_reason_decode_stream | strip_axi_help
     printf '\nheld (captain- or time-gated; an in-flight item that is also held appears in both groups):\n'
-    printf '%s\n' "$held" | fm_hold_reason_decode_stream | strip_axi_help
+    if [ "$REEMIT" -eq 1 ]; then
+      printf '%s\n' "$held" | fm_hold_compact_stream "bin/fm-tasks-axi.sh list --state held --fields hold_kind,hold_reason,hold_until"
+    else
+      printf '%s\n' "$held" | fm_hold_reason_decode_stream | strip_axi_help
+    fi
     printf '\nblocked queued:\n'
     printf '%s\n' "$blocked" | fm_hold_reason_decode_stream | strip_axi_help
     printf '\nready queued (dispatchable now):\n'

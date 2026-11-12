@@ -1,0 +1,24 @@
+fm-afk-launch: away-posture record archived at /tmp/fm-lab.BxO5e0/state/afk-contracts/1794506587.afk-contract
+fm-afk-launch: away mode stopped; no daemon terminal was running, .afk cleared, and the posture record archived
+=== Return brief (away 2026-11-12T18:03:07Z -> 2026-11-12T18:03:09Z, 2s) ===
+Supervisor health:
+  - GAP: the watcher beat was 999999s old at return (grace 300s)
+Your instructions:
+  your words at entry:
+    Return after reviewing the held deployment exception.
+  the away session took no action under them.
+Waiting on you:
+  held in the backlog:
+    1 held item(s), one line each (id | title | hold kind | until); every full hold reason: bin/fm-tasks-axi.sh list --state held --fields hold_kind,hold_reason,hold_until
+      held-lengthy | Approve the deliberately long deployment exception | captain | until -
+Tried and failed, or could not be fixed:
+  (nothing)
+Landed, cleanup due:
+  (nothing)
+Handled while away:
+  0 outcome(s) handled by the away session (0 routine, 0 escalated above)
+  (no routine outcomes recorded in the store for this window)
+Cost: 0 supervision outcome(s) recorded (0 routine, 0 captain); 0 task(s) live at return.
+catch-up health: GAP: the watcher beat was 999999s old at return (grace 300s)
+fm-afk-return: catch-up clear; ordinary captain work may proceed
+away_return_exit=0

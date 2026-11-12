@@ -16,22 +16,16 @@ Prerequisites:
 - The universal harness and toolchain requirements in [`configuration.md`](configuration.md#toolchain).
 
 Select herdr-core with local `config/backend` containing `herdr-core`, `FM_BACKEND=herdr-core` for one launch, or an explicit request to Firstmate.
-It can also be runtime auto-detected when Firstmate runs inside an hc terminal; see [Runtime detection](#runtime-detection).
+The upstream `hc` adapter owns runtime auto-detection; this fork adapter remains available by explicit selection for its capped crew tabs and existing task records.
 A spawn stops with an actionable message when `hc` is missing or older than 0.1.13, or `jq` is missing.
 
 Verify setup by spawning a small task and confirming metadata contains `backend=herdr-core`, `herdr_core_session=`, and `herdr_core_terminal=`, and that `hc ls` lists the new terminal.
 
 ## Runtime detection
 
-herdr-core puts `HC_TERMINAL_ID` and `HC_TERMINAL_SOCKET` into every terminal its core runs, and `HC_TERMINAL_ID` is the detection marker.
-Detection checks tmux first, so a tmux session started inside an hc terminal stays on tmux.
-
-hc terminals inherit the core's environment, not the environment of the `hc` command that created them.
-A core that was itself started from inside a Herdr pane therefore carries `HERDR_ENV=1` into every hc terminal, and Herdr started inside an hc terminal carries both markers too.
-When both `HC_TERMINAL_ID` and `HERDR_ENV=1` are present, the first `herdr` or `herdr-core` process in Firstmate's own process ancestry is the innermost layer and wins.
-When the ancestry reaches neither, Herdr keeps its established precedence.
-
-An auto-detected herdr-core prints a stderr notice naming `config/backend` and `--backend tmux`, because the backend is experimental.
+Runtime auto-detection now uses upstream's [`hc` adapter](hc-backend.md#runtime-auto-detection), including its terminal-label proof and version gate.
+To keep this fork adapter's crew-tab cap and legacy task labels, select `herdr-core` explicitly with `config/backend`, `FM_BACKEND`, or `--backend`.
+Existing `backend=herdr-core` task metadata continues to select this adapter for supervision, steering, and recovery.
 
 ## How tasks run
 

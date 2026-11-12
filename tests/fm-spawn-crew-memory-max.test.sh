@@ -119,7 +119,23 @@ test_older_systemd_refuses() {
   pass "config/crew-memory-max refuses before launching on systemd 242"
 }
 
+test_t3code_refuses_capped_launch() {
+  local out status
+  make_case t3code t3code-a1
+  install_probes
+  printf '6G\n' > "$HOME_DIR/config/crew-memory-max"
+  printf '#!/bin/sh\nexit 99\n' > "$FAKEBIN_DIR/node"
+  chmod +x "$FAKEBIN_DIR/node"
+  out=$(PATH="$FAKEBIN_DIR:$PATH" run_spawn t3code-a1 "$PROJ_DIR" --mode no-mistakes --yolo off --backend t3code 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "a T3 launch must not silently drop the configured cap"
+  assert_contains "$out" "backend=t3code cannot honor config/crew-memory-max" "the refusal must name the incompatible cap before contacting T3"
+  [ ! -s "$LAUNCH_LOG" ] || fail "a refused T3 spawn must not deliver a launch"
+  pass "config/crew-memory-max refuses a T3-managed launch instead of dropping the cap"
+}
+
 test_capped_launch_runs_inside_the_scope
+test_t3code_refuses_capped_launch
 test_absent_file_launches_unwrapped
 test_malformed_value_refuses
 test_older_systemd_refuses

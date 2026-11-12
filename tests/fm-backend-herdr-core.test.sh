@@ -411,35 +411,9 @@ test_endpoint_validation_and_absence() {
   pass "endpoint record validation, control capabilities, and absence proof"
 }
 
-# A fake `ps` answering this shell's ancestry as: this shell -> pid 500
-# (FM_FAKE_PS_500, the first multiplexer found) -> pid 600 (FM_FAKE_PS_600) -> init.
-PS_FAKEBIN="$TMP_ROOT/ps-fakebin"
-mkdir -p "$PS_FAKEBIN"
-cat > "$PS_FAKEBIN/ps" <<'SH'
-#!/usr/bin/env bash
-field=$2 pid=$4
-case "$pid:$field" in
-  500:comm=) printf '%s\n' "${FM_FAKE_PS_500:-bash}" ;;
-  500:ppid=) printf '600\n' ;;
-  600:comm=) printf '%s\n' "${FM_FAKE_PS_600:-bash}" ;;
-  600:ppid=) printf '1\n' ;;
-  *:comm=) printf 'bash\n' ;;
-  *:ppid=) printf '500\n' ;;
-esac
-SH
-chmod +x "$PS_FAKEBIN/ps"
-
-test_detection() {
-  assert_equals herdr-core "$(HC_TERMINAL_ID=t1 fm_backend_detect)" "HC_TERMINAL_ID selects herdr-core"
-  assert_equals tmux "$(TMUX=x HC_TERMINAL_ID=t1 fm_backend_detect)" "tmux nested inside herdr-core wins"
-  # Both markers: whichever multiplexer is the nearer ancestor is innermost.
-  assert_equals herdr-core "$(PATH="$PS_FAKEBIN:$PATH" FM_FAKE_PS_500=/x/herdr-core FM_FAKE_PS_600=herdr \
-    HERDR_ENV=1 HC_TERMINAL_ID=t1 fm_backend_detect)" "a core started from a herdr pane is innermost"
-  assert_equals herdr "$(PATH="$PS_FAKEBIN:$PATH" FM_FAKE_PS_500=herdr FM_FAKE_PS_600=herdr-core \
-    HERDR_ENV=1 HC_TERMINAL_ID=t1 fm_backend_detect)" "herdr started inside an hc terminal is innermost"
-  assert_equals herdr "$(PATH="$PS_FAKEBIN:$PATH" HERDR_ENV=1 HC_TERMINAL_ID=t1 fm_backend_detect)" \
-    "an inconclusive ancestry keeps herdr's established precedence"
-  pass "detection: HC_TERMINAL_ID, innermost-first, with ancestry deciding when herdr's marker is also present"
+test_explicit_selection() {
+  assert_equals herdr-core "$(FM_BACKEND=herdr-core fm_backend_name)" "the legacy capped adapter remains explicitly selectable"
+  pass "selection: explicit herdr-core keeps the fork adapter"
 }
 
 test_secondmate_spawn_refuses_herdr_core() {
@@ -467,5 +441,5 @@ test_kill
 test_finished_terminal_relaunch
 test_list_live_is_home_scoped
 test_endpoint_validation_and_absence
-test_detection
+test_explicit_selection
 test_secondmate_spawn_refuses_herdr_core

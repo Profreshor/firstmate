@@ -544,7 +544,7 @@ print_backlog_tasks_axi_compact() {
     printf '%s\n' "$in_flight" | fm_hold_reason_decode_stream | strip_axi_help
     printf '\nheld (captain- or time-gated; an in-flight item that is also held appears in both groups):\n'
     if [ "$REEMIT" -eq 1 ]; then
-      printf '%s\n' "$held" | fm_hold_compact_stream "bin/fm-tasks-axi.sh list --state held --fields hold_kind,hold_reason,hold_until"
+      printf '%s\n' "$held" | fm_hold_compact_stream
     else
       printf '%s\n' "$held" | fm_hold_reason_decode_stream | strip_axi_help
     fi

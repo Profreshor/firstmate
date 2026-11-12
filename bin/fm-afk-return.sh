@@ -595,7 +595,7 @@ render_return_brief() {  # <evidence-file> <blockers-file> <since-epoch> <drain-
     elif [ -n "$rows" ]; then
       count=$((count + 1))
       printf '  held in the backlog:\n'
-      printf '%s\n' "$held" | fm_hold_compact_stream 'bin/fm-tasks-axi.sh list --state held --fields hold_kind,hold_reason,hold_until' \
+      printf '%s\n' "$held" | fm_hold_compact_stream \
         | sed 's/^/    /'
     fi
   else

@@ -77,7 +77,7 @@ fm_hold_reason_decode_stream() {
   ' "${1:-toon}"
 }
 
-# fm_hold_compact_stream <full-reasons command>: shorten a tasks-axi TOON held
+# fm_hold_compact_stream: shorten a tasks-axi TOON held
 # listing to one line per item: id, title without tasks-axi's truncation note,
 # hold kind, and hold-until date, after one line with the count and the command
 # that prints every full reason. A hold whose until date has arrived is no
@@ -89,7 +89,7 @@ fm_hold_compact_stream() {
     use warnings;
     binmode STDIN, ":encoding(UTF-8)";
     binmode STDOUT, ":encoding(UTF-8)";
-    my ($command) = @ARGV;
+    my $command = "bin/fm-tasks-axi.sh list --state held --fields hold_kind,hold_reason,hold_until";
     my $json = JSON::PP->new->allow_nonref;
     my (@names, @rows, @other);
     my $in_rows = 0;
@@ -126,5 +126,5 @@ fm_hold_compact_stream() {
       scalar @rows, $command;
     print "  $_\n" for @rows;
     print @other;
-  ' "$1"
+  '
 }

@@ -1,0 +1,14 @@
+1..12
+ok - main not moved skips
+ok - unrelated main change skips
+ok - rename vs edit counts as overlap
+ok - real conflict rebases
+ok - missing remote branch skips
+ok - remote branch read error rebases
+ok - diff error rebases
+ok - pipeline commits on pushed branch rebase
+ok - detached HEAD rebases
+ok - different migration numbers skip
+ok - dotted numbered migration clashes
+ok - unknown base falls back to normal
+FM_TEST_COMPLETE

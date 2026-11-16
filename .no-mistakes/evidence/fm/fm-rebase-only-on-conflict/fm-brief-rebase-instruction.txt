@@ -1,0 +1,1 @@
+Right before each `no-mistakes axi run` that starts a run, run `/home/curtis/.no-mistakes/worktrees/aa96bb817995/01M7K0F37XX29052ZY7S7CF2QY/bin/fm-rebase-needed.sh release/\$HOTFIX`; if it prints `skip-rebase`, also pass `--skip rebase` to that run, and otherwise run it as usual.

@@ -69,6 +69,15 @@ test_remote_branch_read_error() {
   chmod +x "$w/fake-bin/git"
   PATH="$w/fake-bin:$PATH" expect "$w" "normal: could not read origin/feat" "remote branch read error rebases"
 }
+test_diff_error() {
+  local w git_path
+  w=$(new_world diff-error); on_main "$w" other x
+  git_path=$(command -v git)
+  mkdir -p "$w/fake-bin"
+  printf '#!/usr/bin/env bash\n[ "$1" = diff ] && exit 1\nexec %q "$@"\n' "$git_path" > "$w/fake-bin/git"
+  chmod +x "$w/fake-bin/git"
+  PATH="$w/fake-bin:$PATH" expect "$w" "normal: could not compare files with origin/main" "diff error rebases"
+}
 test_pushed_branch_ahead() {
   local w; w=$(new_world e)
   git -C "$w/work" push -q origin feat
@@ -98,5 +107,5 @@ test_fetch_error() {
 }
 
 fm_test_run test_main_not_moved test_unrelated_file test_same_file_no_conflict test_stale_main_conflict \
-  test_unpushed_branch test_remote_branch_read_error test_pushed_branch_ahead \
+  test_unpushed_branch test_remote_branch_read_error test_diff_error test_pushed_branch_ahead \
   test_detached_head test_numbered_clash test_fetch_error

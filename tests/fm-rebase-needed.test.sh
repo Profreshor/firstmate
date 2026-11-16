@@ -65,6 +65,7 @@ test_remote_branch_read_error() {
   w=$(new_world branch-read-error)
   git_path=$(command -v git)
   mkdir -p "$w/fake-bin"
+  # shellcheck disable=SC2016  # The wrapper's positional parameters expand in its child shell.
   printf '#!/usr/bin/env bash\n[ "$1" = ls-remote ] && exit 1\nexec %q "$@"\n' "$git_path" > "$w/fake-bin/git"
   chmod +x "$w/fake-bin/git"
   PATH="$w/fake-bin:$PATH" expect "$w" "normal: could not read origin/feat" "remote branch read error rebases"
@@ -74,6 +75,7 @@ test_diff_error() {
   w=$(new_world diff-error); on_main "$w" other x
   git_path=$(command -v git)
   mkdir -p "$w/fake-bin"
+  # shellcheck disable=SC2016  # The wrapper's positional parameters expand in its child shell.
   printf '#!/usr/bin/env bash\n[ "$1" = diff ] && exit 1\nexec %q "$@"\n' "$git_path" > "$w/fake-bin/git"
   chmod +x "$w/fake-bin/git"
   PATH="$w/fake-bin:$PATH" expect "$w" "normal: could not compare files with origin/main" "diff error rebases"

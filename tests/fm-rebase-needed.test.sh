@@ -101,6 +101,13 @@ test_numbered_clash() {
   git -C "$w/work" mv db/sql/031_b.sql db/sql/032_b.sql; git -C "$w/work" commit -qm renum
   expect "$w" "skip-rebase" "different migration numbers skip"
 }
+test_numbered_dot_clash() {
+  local w; w=$(new_world numbered-dot)
+  on_main "$w" db/sql/031.sql a
+  mkdir -p "$w/work/db/sql"; printf b > "$w/work/db/sql/031_b.sql"
+  git -C "$w/work" add -A; git -C "$w/work" commit -qm mig
+  expect "$w" "normal: both sides added numbered file(s): db/sql/031" "dotted numbered migration clashes"
+}
 test_fetch_error() {
   local w; w=$(new_world h)
   expect "$w" "normal: could not fetch" "unknown base falls back to normal" nosuchbase
@@ -108,4 +115,4 @@ test_fetch_error() {
 
 fm_test_run test_main_not_moved test_unrelated_file test_same_file_no_conflict test_stale_main_conflict \
   test_unpushed_branch test_remote_branch_read_error test_diff_error test_pushed_branch_ahead \
-  test_detached_head test_numbered_clash test_fetch_error
+  test_detached_head test_numbered_clash test_numbered_dot_clash test_fetch_error

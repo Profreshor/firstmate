@@ -115,6 +115,19 @@ test_fetch_error() {
   expect "$w" "normal: could not fetch" "unknown base falls back to normal" nosuchbase
 }
 
+# The remote default is master while a stale main also exists: with no
+# argument the check must follow the default, so a master conflict is seen.
+test_default_branch_is_resolved() {
+  local w; w=$(new_world i)
+  git -C "$w/origin" branch -m main master
+  git -C "$w/origin" branch main
+  git -C "$w/work" remote set-head origin master 2>/dev/null || true
+  on_master() { git -C "$w/origin" checkout -q master; on_main "$w" f1 3; }
+  on_master
+  local out; out=$(cd "$w/work" && "$TOOL" 2>&1)
+  case "$out" in "normal: conflicts with origin/master"*) pass "omitted base follows the remote default branch" ;; *) fail "omitted base: got '$out'" ;; esac
+}
+
 fm_test_run test_main_not_moved test_unrelated_file test_same_file_no_conflict test_stale_main_conflict \
   test_unpushed_branch test_remote_branch_read_error test_diff_error test_pushed_branch_ahead \
-  test_detached_head test_numbered_clash test_numbered_dot_clash test_fetch_error
+  test_detached_head test_numbered_clash test_numbered_dot_clash test_fetch_error test_default_branch_is_resolved

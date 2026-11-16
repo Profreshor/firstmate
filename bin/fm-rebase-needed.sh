@@ -3,7 +3,13 @@
 # Prints "skip-rebase: <why>" when the run may pass --skip rebase, otherwise
 # "normal: <why>". Any doubt or git error answers "normal" (today's behaviour).
 set -u
-base=${1:-main}; up="origin/$base"
+base=${1:-}
+if [ -z "$base" ]; then
+  # No argument means the repository default, which is not always main.
+  base=$(git ls-remote --symref origin HEAD 2>/dev/null | sed -n 's#^ref: refs/heads/\(.*\)[[:space:]]HEAD$#\1#p' | head -n1)
+  [ -n "$base" ] || { echo "normal: could not resolve the remote default branch"; exit 0; }
+fi
+up="origin/$base"
 br=$(git symbolic-ref -q --short HEAD) || { echo "normal: detached HEAD"; exit 0; }
 git fetch -q origin "+refs/heads/$base:refs/remotes/origin/$base" 2>/dev/null || { echo "normal: could not fetch $up"; exit 0; }
 # The pipeline's rebase step also syncs pipeline-made commits from the pushed branch.

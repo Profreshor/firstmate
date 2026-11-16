@@ -1398,6 +1398,18 @@ test_home_brief_include_is_appended_last() {
 # --base-branch names the branch a task starts from and a ship's PR targets. It is
 # recorded as a Base branch line under # Setup, which fm-spawn reads back, and is
 # refused where no pull request carries the work.
+test_no_mistakes_brief_runs_the_rebase_check() {
+  local home brief
+  home="$TMP_ROOT/rebase-check-home"
+  mkdir -p "$home/data"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-rebase-nm-b1 some-proj --mode no-mistakes >/dev/null 2>&1 \
+    || fail "no-mistakes scaffold failed"
+  brief="$home/data/brief-rebase-nm-b1/brief.md"
+  assert_contains "$(cat "$brief")" "fm-rebase-needed.sh" "no-mistakes brief should name the rebase check"
+  assert_contains "$(cat "$brief")" "--skip rebase" "no-mistakes brief should allow --skip rebase on skip-rebase"
+  pass "fm-brief.sh: no-mistakes brief runs the rebase check before axi run"
+}
+
 test_base_branch_is_rendered_and_bounded() {
   local home out rc brief base meta_base
   home="$TMP_ROOT/base-branch-home"
@@ -1435,6 +1447,9 @@ test_base_branch_is_rendered_and_bounded() {
   # shellcheck disable=SC2016
   assert_grep 'pass `--base-branch release/\$HOTFIX` on every' "$brief" \
     "the no-mistakes command did not shell-quote the base branch"
+  # shellcheck disable=SC2016  # The assertion requires literal shell syntax in the brief.
+  assert_contains "$(cat "$brief")" 'fm-rebase-needed.sh release/\$HOTFIX' \
+    "the rebase check did not shell-quote the base branch"
   FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-base-meta-b9 some-proj --mode direct-PR --base-branch "$meta_base" >/dev/null 2>&1 \
     || fail "direct-PR --base-branch with a shell metacharacter should scaffold"
   # shellcheck disable=SC2016
@@ -1769,6 +1784,7 @@ test_workers_wait_without_spending_turns
 test_wait_no_turns_absent_keeps_the_previous_brief
 test_inbox_guidance_explains_marked_body_terminator
 test_home_brief_include_is_appended_last
+test_no_mistakes_brief_runs_the_rebase_check
 test_base_branch_is_rendered_and_bounded
 test_ship_branch_prefix_defaults_to_legacy_fm
 test_ship_branch_prefix_override_is_consistent_across_modes

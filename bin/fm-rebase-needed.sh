@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Run in the worker's checkout right before `no-mistakes axi run`.
+# Run in the worker's checkout before each `no-mistakes axi run` that starts a
+# run, optionally passing the task's non-default base branch.
 # Prints "skip-rebase: <why>" when the run may pass --skip rebase, otherwise
 # "normal: <why>". Any doubt or git error answers "normal" (today's behaviour).
 set -u

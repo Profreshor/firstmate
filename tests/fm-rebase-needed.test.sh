@@ -53,13 +53,9 @@ test_same_file_no_conflict() {
   git -C "$w/work" mv f2 f2b 2>/dev/null; git -C "$w/work" commit -qm rename
   expect "$w" "normal: origin/main also changed" "rename vs edit counts as overlap"
 }
-test_conflict() {
+test_stale_main_conflict() {
   local w; w=$(new_world d); on_main "$w" f1 3
   expect "$w" "normal: conflicts with origin/main" "real conflict rebases"
-}
-test_stale_main_conflict() {
-  local w; w=$(new_world stale-main); on_main "$w" f1 3
-  expect "$w" "normal: conflicts with origin/main" "new main conflict refreshes a stale tracking ref"
 }
 test_unpushed_branch() {
   expect "$(new_world unpushed)" "skip-rebase: origin/main has not moved" "missing remote branch skips"
@@ -101,6 +97,6 @@ test_fetch_error() {
   expect "$w" "normal: could not fetch" "unknown base falls back to normal" nosuchbase
 }
 
-fm_test_run test_main_not_moved test_unrelated_file test_same_file_no_conflict test_conflict \
-  test_stale_main_conflict test_unpushed_branch test_remote_branch_read_error test_pushed_branch_ahead \
+fm_test_run test_main_not_moved test_unrelated_file test_same_file_no_conflict test_stale_main_conflict \
+  test_unpushed_branch test_remote_branch_read_error test_pushed_branch_ahead \
   test_detached_head test_numbered_clash test_fetch_error

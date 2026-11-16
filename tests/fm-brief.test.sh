@@ -1447,6 +1447,8 @@ test_base_branch_is_rendered_and_bounded() {
   # shellcheck disable=SC2016
   assert_grep 'pass `--base-branch release/\$HOTFIX` on every' "$brief" \
     "the no-mistakes command did not shell-quote the base branch"
+  assert_contains "$(cat "$brief")" 'fm-rebase-needed.sh release/\$HOTFIX' \
+    "the rebase check did not shell-quote the base branch"
   FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-base-meta-b9 some-proj --mode direct-PR --base-branch "$meta_base" >/dev/null 2>&1 \
     || fail "direct-PR --base-branch with a shell metacharacter should scaffold"
   # shellcheck disable=SC2016

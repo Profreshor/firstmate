@@ -433,8 +433,8 @@ EOF
 # Written once; only the two sentences about a green PR depend on the forge,
 # because on gerrit, and under pr=manual (the `no-ci` argument), the ci step is
 # skipped and the drive call never reports a green PR.
-fm_nm_driving_block() {  # <forge|no-ci>
-  local pr_return_line='' pr_reattach_clause=';' drive_block wait_cfg
+fm_nm_driving_block() {  # <forge|no-ci> [base-arg]
+  local pr_return_line='' pr_reattach_clause=';' drive_block wait_cfg rebase_tool rebase_command
   if [ "$1" != gerrit ] && [ "$1" != no-ci ]; then
     pr_return_line="Only a drive call's return reports the green PR: \`no-mistakes axi status\` shows progress but never reports \`checks-passed\` while the ci step is still monitoring the PR for merge, so never wait on a status poll for the next gate or outcome.
 "
@@ -457,10 +457,11 @@ Where a harness's own command limit is not established, assume it bounds command
 ${pr_return_line}Whenever a drive call returns without a gate or an outcome - its own wait elapsed, or it was killed or timed out - reattach at once by re-running \`no-mistakes axi run\` without flags, backgrounded the same way${pr_reattach_clause} if it refuses because no run is active, read the finished outcome from \`no-mistakes axi status\`."
   fi
   rebase_tool=${FM_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}/bin/fm-rebase-needed.sh
+  rebase_command="$rebase_tool${2:+ $2}"
   cat <<EOF
 You drive no-mistakes by responding to its gates, not by implementing fixes.
 Follow the guidance no-mistakes itself provides for the mechanics: it loads when you invoke /no-mistakes, and \`no-mistakes axi run --help\` plus the \`help\` lines in each \`axi\` response are authoritative and version-matched to the installed binary.
-Right before each \`no-mistakes axi run\` that starts a run, run \`$rebase_tool\`, adding the task's base branch as its argument when this brief names one; if it prints \`skip-rebase\`, also pass \`--skip rebase\` to that run, and otherwise run it as usual.
+Right before each \`no-mistakes axi run\` that starts a run, run \`$rebase_command\`; if it prints \`skip-rebase\`, also pass \`--skip rebase\` to that run, and otherwise run it as usual.
 When starting no-mistakes, pass \`--intent\` as only this brief's \`## Captain's intent\` subsection body, not its heading, plus any later words the captain actually said.
 Preserve the actual words without adding speaker labels or direct address; the subsection heading supplies provenance outside the pipeline input.
 For a legacy brief with no such subsection, include only words on lines marked \`[captain] \`, excluding that metadata prefix; never copy its mixed \`# Task\` wholesale.
@@ -513,8 +514,8 @@ EOF
 # check holds unchanged. The worker then opens or updates the PR and watches its
 # checks itself. Shaped like the gerrit block: skip flags, the shared driving
 # block, then what to do once the run passes. Callers are fm_dod_block only.
-fm_dod_manual_pr_block() {  # <branch> <forge-cli> <draft-check> <contract-suffix> <nm-base> <pr-base>
-  local branch=$1 forge_cli=$2 draft_check=$3 suffix=$4 nm_base=$5 pr_base=$6
+fm_dod_manual_pr_block() {  # <branch> <forge-cli> <draft-check> <contract-suffix> <nm-base> <pr-base> <base-arg>
+  local branch=$1 forge_cli=$2 draft_check=$3 suffix=$4 nm_base=$5 pr_base=$6 base_arg=$7
   cat <<EOF
 # Definition of done
 Delivery contract: mode=no-mistakes$suffix pr=manual
@@ -527,7 +528,7 @@ The pipeline owns the push, so never push from this copy.
 Your only \`done:\` is the CI-ready report below, which names the PR URL.
 ${nm_base}
 EOF
-  fm_nm_driving_block no-ci
+  fm_nm_driving_block no-ci "$base_arg"
   cat <<EOF
 
 When the run's outcome is passed, passed-with-skips, or passed-with-override, write the PR title and body yourself and publish them with \`$forge_cli\`:
@@ -545,7 +546,7 @@ EOF
 
 fm_dod_block() {  # <mode> <task-id> [branch] [<forge>] [<base>] [<consent>] [<pr>]
   local mode=$1 id=$2 forge=${4:-none} base=${5:-} consent=${6:-} pr=${7:-auto}
-  local branch=${3:-fm/$id} pr_base='' nm_base='' base_q contract_forge='' contract_consent='' forge_cli=gh-axi draft_check adapter
+  local branch=${3:-fm/$id} pr_base='' nm_base='' base_q='' contract_forge='' contract_consent='' forge_cli=gh-axi draft_check adapter
   fm_forge_valid_for_mode "$forge" "$mode" fm_dod_block || return 1
   fm_base_branch_valid "$base" "$mode" "$forge" fm_dod_block || return 1
   fm_pr_text_valid "$pr" "$mode" "$forge" fm_dod_block || return 1
@@ -597,7 +598,7 @@ When it is implemented and committed, start the no-mistakes run yourself in that
 Your only \`done:\` is the published-for-review report below.
 
 EOF
-      fm_nm_driving_block "$forge"
+      fm_nm_driving_block "$forge" "$base_q"
       cat <<EOF
 
 Because \`push\` is skipped, the pipeline's fixes DO NOT arrive in your checkout: each fix round commits onto a branch inside no-mistakes' own local gate repository, and with no push nothing carries those commits back to you.
@@ -678,7 +679,7 @@ EOF
       if [ "$pr" = manual ]; then
         [ -z "$nm_base" ] || nm_base="This task's base branch is \`$base\`, not the repository default: pass \`--base-branch $base_q\` on every \`no-mistakes axi run\` that starts a run, so the pipeline rebases onto that branch, and open the PR against it with \`--base $base_q\`.
 "
-        fm_dod_manual_pr_block "$branch" "$forge_cli" "$draft_check" "$contract_forge$contract_consent" "$nm_base" "$pr_base"
+        fm_dod_manual_pr_block "$branch" "$forge_cli" "$draft_check" "$contract_forge$contract_consent" "$nm_base" "$pr_base" "$base_q"
         return
       fi
       cat <<EOF
@@ -691,7 +692,7 @@ The pipeline owns the push and the PR, so never push from this copy.
 Your only \`done:\` is the CI-ready report below, which names the PR URL.
 ${nm_base}
 EOF
-      fm_nm_driving_block "$forge"
+      fm_nm_driving_block "$forge" "$base_q"
       cat <<EOF
 
 After /no-mistakes reports CI green (the CI-ready return point - do not wait for it to keep monitoring in the background until merge), read the PR back from the forge and confirm it is not a draft $draft_check

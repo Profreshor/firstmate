@@ -1536,6 +1536,13 @@ Crew and scout launches still request hook disablement and retain their notifica
 A managed policy can override the requested hook disablement, so it may still require an operator's hook review.
 See the [current verification and limits](verification/runtime-backends.md#codex-automatic-approval-review) for observed task-channel and network access.
 
+## Claude Code Mode trial
+
+Claude Code's [Code Mode](https://code.claude.com/docs/en/code-mode) is experimental and off by default.
+Use the per-spawn `--code-mode` switch described in [`bin/fm-spawn.sh --help`](../bin/fm-spawn.sh) to try it on one Claude worker; that header owns its launch, persistence, and refusal rules.
+A person must answer the one-time confirmation dialog before the worker can proceed.
+Firstmate does not change Claude user settings or enable Code Mode for other sessions.
+
 ## Claude permission mode (config/claude-permission-mode)
 
 The optional local, gitignored `config/claude-permission-mode` selects the permission flag for Firstmate-built Claude command lines: crewmates, scouts, Claude secondmates, and control-plane relaunches.

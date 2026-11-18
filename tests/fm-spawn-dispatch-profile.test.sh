@@ -187,11 +187,93 @@ test_no_profile_keeps_claude_profile_defaults() {
   expect_code 0 "$status" "claude spawn without profile flags should succeed"
   assert_contains "$out" "spawned $id harness=claude" "spawn did not report claude"
   assert_meta_profile "$HOME_DIR/state/$id.meta" claude default default
+  assert_not_contains "$(cat "$HOME_DIR/state/$id.meta")" 'code_mode=' "default spawn opted into Code Mode"
 
   launch=$(fm_test_launch_unframe "$(cat "$LAUNCH_LOG")")
   expected=$(claude_expected_launch "$launch" "$HOME_DIR" "$id" --dangerously-skip-permissions)
   [ "$launch" = "$expected" ] || fail "no-profile claude launch did not use the canonical launch kind"$'\n'"expected: $expected"$'\n'"actual:   $launch"
   pass "no --model/--effort records defaults and types the claude launch instructions"
+}
+
+test_claude_code_mode_launch_and_relaunch() {
+  local rec id kind setting out status launch result round
+  local args=()
+  for kind in ship scout; do
+    for setting in absent allowlist; do
+      id="code-mode-$kind-$setting"
+      rec=$(make_spawn_case "$id" claude "$id")
+      read_case_record "$rec"
+      if [ "$setting" = allowlist ]; then
+        : > "$HOME_DIR/config/launch-env-allowlist"
+      fi
+      cat > "$FAKEBIN_DIR/claude" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "${CLAUDE_CODE_EXPERIMENTAL_CODE_MODE-unset}" \
+  "$CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION" "$CLAUDE_CODE_SEND_FEEDBACK"
+SH
+      chmod +x "$FAKEBIN_DIR/claude"
+      # The spawn-world fixture's pane is idle for relaunch, with its original
+      # window still present. Delegate every other operation to the usual stub.
+      mv "$FAKEBIN_DIR/tmux" "$FAKEBIN_DIR/tmux-spawn"
+      cat > "$FAKEBIN_DIR/tmux" <<'SH'
+#!/usr/bin/env bash
+case "$*" in
+  *'#{pane_current_command}'*) printf 'bash\n'; exit 0 ;;
+  *'#{pane_pid}'*) exit 0 ;;
+esac
+exec "$(dirname "$0")/tmux-spawn" "$@"
+SH
+      chmod +x "$FAKEBIN_DIR/tmux"
+      args=("$id" "$PROJ_DIR" --code-mode)
+      if [ "$kind" = ship ]; then
+        args+=(--mode no-mistakes --yolo off)
+      else
+        args+=(--scout)
+      fi
+      for round in spawn relaunch; do
+        out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "${args[@]}")
+        status=$?
+        expect_code 0 "$status" "Code Mode $kind $setting $round should succeed: $out"
+        [ "$(grep -cx 'code_mode=1' "$HOME_DIR/state/$id.meta")" = 1 ] \
+          || fail "$round did not persist exactly one Code Mode opt-in"
+        launch=$(fm_test_launch_unframe "$(cat "$LAUNCH_LOG")")
+        result=$(env -i HOME="$HOME_DIR/user-home" PATH="$FAKEBIN_DIR:/usr/bin:/bin" TERM=xterm \
+          CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=0 bash -c "$launch") \
+          || fail "could not execute Code Mode launch: $kind $setting $round"
+        [ "$result" = $'1\nfalse\n0' ] || fail "Code Mode assignment lost at worker boundary: $result"
+        args=("$id" --relaunch)
+      done
+      pass "Claude $kind Code Mode survives $setting filtering and relaunch from its record"
+    done
+  done
+}
+
+test_code_mode_refuses_unsupported_launches() {
+  local setting rec id out status
+  local args=()
+  for setting in codex opencode pi pi-signed grok kimi cursor gemini muse rovo omp agy devin commandcode polytoken cortex kiro hermes raw secondmate t3code t3code-config; do
+    id="code-mode-refuse-$setting"
+    rec=$(make_spawn_case "$id" claude "$id")
+    read_case_record "$rec"
+    args=("$id" "$PROJ_DIR" --code-mode --mode no-mistakes --yolo off)
+    case "$setting" in
+      raw) args+=(--harness 'claude --model opus') ;;
+      secondmate) args=("$id" "$CASE_DIR/unseeded-home" --secondmate --code-mode) ;;
+      t3code) args+=(--backend t3code) ;;
+      t3code-config) printf 't3code\n' > "$HOME_DIR/config/backend" ;;
+      *) args+=(--harness "$setting") ;;
+    esac
+    out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "${args[@]}")
+    status=$?
+    expect_code 1 "$status" "Code Mode must refuse $setting: $out"
+    assert_contains "$out" '--code-mode' "refusal should identify the switch: $out"
+    [ ! -s "$LAUNCH_LOG" ] || fail "$setting refusal delivered a launch"
+    assert_absent "$FAKEBIN_DIR/.spawn-window" "$setting refusal created an endpoint"
+    assert_absent "$HOME_DIR/state/$id.meta" "$setting refusal published metadata"
+    assert_absent "$HOME_DIR/state/$id.inbox" "$setting refusal created a task inbox"
+    assert_absent "$HOME_DIR/projects/$id" "$setting refusal created a local copy"
+  done
+  pass "Code Mode refuses other harnesses, raw commands, secondmates, and explicit or configured t3code before allocation"
 }
 
 # Claude Code strips U+2063 from the launch-prompt argument, so a claude launch
@@ -2108,24 +2190,37 @@ test_pi_exclude_tools_do_not_leak_across_homes_or_to_secondmates() {
 }
 
 test_batch_forwards_shared_profile_flags() {
-  local rec id1 id2 out status
-  id1=profile-batch-a-z9
-  id2=profile-batch-b-z10
-  rec=$(make_spawn_case profile-batch claude "$id1" "$id2")
-  read_case_record "$rec"
-  enable_dispatch_profile "$HOME_DIR"
-  record_dispatch "$HOME_DIR" "$id1" clear codex gpt-5 high
-  record_dispatch "$HOME_DIR" "$id2" escalate
+  local rec id1 id2 out status harness model
+  local extra=()
+  for harness in codex claude; do
+    id1="profile-batch-$harness-a"
+    id2="profile-batch-$harness-b"
+    rec=$(make_spawn_case "profile-batch-$harness" claude "$id1" "$id2")
+    read_case_record "$rec"
+    enable_dispatch_profile "$HOME_DIR"
+    model=gpt-5
+    extra=()
+    if [ "$harness" = claude ]; then
+      model=opus
+      extra=(--code-mode)
+    fi
+    record_dispatch "$HOME_DIR" "$id1" clear "$harness" "$model" high
+    record_dispatch "$HOME_DIR" "$id2" escalate
 
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
-    "$id1=$PROJ_DIR" "$id2=$PROJ_DIR" --harness codex --model gpt-5 --effort high)
-  status=$?
-  expect_code 0 "$status" "batch spawn with shared profile flags should succeed"
-  assert_contains "$out" "spawned $id1 harness=codex" "first batch task did not use shared harness"
-  assert_contains "$out" "spawned $id2 harness=codex" "second batch task did not use shared harness"
-  assert_meta_profile "$HOME_DIR/state/$id1.meta" codex gpt-5 high
-  assert_meta_profile "$HOME_DIR/state/$id2.meta" codex gpt-5 high
-  pass "batch dispatch forwards shared --harness, --model, and --effort to every pair"
+    out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
+      "$id1=$PROJ_DIR" "$id2=$PROJ_DIR" --harness "$harness" --model "$model" --effort high "${extra[@]+"${extra[@]}"}")
+    status=$?
+    expect_code 0 "$status" "batch spawn with shared profile flags should succeed: $out"
+    assert_contains "$out" "spawned $id1 harness=$harness" "first batch task did not use shared harness"
+    assert_contains "$out" "spawned $id2 harness=$harness" "second batch task did not use shared harness"
+    assert_meta_profile "$HOME_DIR/state/$id1.meta" "$harness" "$model" high
+    assert_meta_profile "$HOME_DIR/state/$id2.meta" "$harness" "$model" high
+    if [ "$harness" = claude ]; then
+      assert_grep 'code_mode=1' "$HOME_DIR/state/$id1.meta" "first batch task lost Code Mode"
+      assert_grep 'code_mode=1' "$HOME_DIR/state/$id2.meta" "second batch task lost Code Mode"
+    fi
+    pass "$harness batch forwards shared profile flags and the optional Code Mode switch to every pair"
+  done
 }
 
 test_claude_forwards_firstmate_config_dir_when_set() {
@@ -3015,6 +3110,8 @@ test_codex_permission_does_not_change_other_harnesses() {
   pass "Codex restricted mode leaves other harness launch flags unchanged"
 }
 
+test_claude_code_mode_launch_and_relaunch
+test_code_mode_refuses_unsupported_launches
 test_codex_permission_modes
 test_codex_permission_invalid_refuses_before_mutation
 test_codex_permission_does_not_change_other_harnesses

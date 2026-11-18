@@ -1,0 +1,3 @@
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.xTwecR
+error: --code-mode is for one worker; batch dispatch is unsupported
+exit=1

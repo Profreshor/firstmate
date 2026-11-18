@@ -2190,37 +2190,45 @@ test_pi_exclude_tools_do_not_leak_across_homes_or_to_secondmates() {
 }
 
 test_batch_forwards_shared_profile_flags() {
-  local rec id1 id2 out status harness model
-  local extra=()
-  for harness in codex claude; do
-    id1="profile-batch-$harness-a"
-    id2="profile-batch-$harness-b"
-    rec=$(make_spawn_case "profile-batch-$harness" claude "$id1" "$id2")
-    read_case_record "$rec"
-    enable_dispatch_profile "$HOME_DIR"
-    model=gpt-5
-    extra=()
-    if [ "$harness" = claude ]; then
-      model=opus
-      extra=(--code-mode)
-    fi
-    record_dispatch "$HOME_DIR" "$id1" clear "$harness" "$model" high
-    record_dispatch "$HOME_DIR" "$id2" escalate
+  local rec id1 id2 out status
+  id1=profile-batch-a-z9
+  id2=profile-batch-b-z10
+  rec=$(make_spawn_case profile-batch claude "$id1" "$id2")
+  read_case_record "$rec"
+  enable_dispatch_profile "$HOME_DIR"
+  record_dispatch "$HOME_DIR" "$id1" clear codex gpt-5 high
+  record_dispatch "$HOME_DIR" "$id2" escalate
 
-    out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
-      "$id1=$PROJ_DIR" "$id2=$PROJ_DIR" --harness "$harness" --model "$model" --effort high "${extra[@]+"${extra[@]}"}")
-    status=$?
-    expect_code 0 "$status" "batch spawn with shared profile flags should succeed: $out"
-    assert_contains "$out" "spawned $id1 harness=$harness" "first batch task did not use shared harness"
-    assert_contains "$out" "spawned $id2 harness=$harness" "second batch task did not use shared harness"
-    assert_meta_profile "$HOME_DIR/state/$id1.meta" "$harness" "$model" high
-    assert_meta_profile "$HOME_DIR/state/$id2.meta" "$harness" "$model" high
-    if [ "$harness" = claude ]; then
-      assert_grep 'code_mode=1' "$HOME_DIR/state/$id1.meta" "first batch task lost Code Mode"
-      assert_grep 'code_mode=1' "$HOME_DIR/state/$id2.meta" "second batch task lost Code Mode"
-    fi
-    pass "$harness batch forwards shared profile flags and the optional Code Mode switch to every pair"
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
+    "$id1=$PROJ_DIR" "$id2=$PROJ_DIR" --harness codex --model gpt-5 --effort high)
+  status=$?
+  expect_code 0 "$status" "batch spawn with shared profile flags should succeed"
+  assert_contains "$out" "spawned $id1 harness=codex" "first batch task did not use shared harness"
+  assert_contains "$out" "spawned $id2 harness=codex" "second batch task did not use shared harness"
+  assert_meta_profile "$HOME_DIR/state/$id1.meta" codex gpt-5 high
+  assert_meta_profile "$HOME_DIR/state/$id2.meta" codex gpt-5 high
+  pass "batch dispatch forwards shared --harness, --model, and --effort to every pair"
+}
+
+test_code_mode_refuses_batch_dispatch() {
+  local rec id1 id2 out status
+  id1=code-mode-batch-a
+  id2=code-mode-batch-b
+  rec=$(make_spawn_case code-mode-batch claude "$id1" "$id2")
+  read_case_record "$rec"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
+    "$id1=$PROJ_DIR" "$id2=$PROJ_DIR" --harness claude --code-mode)
+  status=$?
+  expect_code 1 "$status" "Code Mode batch dispatch must refuse: $out"
+  assert_contains "$out" '--code-mode is for one worker' "refusal must identify the one-worker limit: $out"
+  [ ! -s "$LAUNCH_LOG" ] || fail "batch refusal delivered a launch"
+  for id in "$id1" "$id2"; do
+    assert_absent "$HOME_DIR/state/$id.meta" "batch refusal wrote metadata for $id"
+    assert_absent "$HOME_DIR/state/$id.inbox" "batch refusal created an inbox for $id"
+    assert_absent "$HOME_DIR/projects/$id" "batch refusal created a local copy for $id"
   done
+  pass "Code Mode refuses batch dispatch before spawning either worker"
 }
 
 test_claude_forwards_firstmate_config_dir_when_set() {
@@ -3191,6 +3199,7 @@ test_pi_exclude_tools_malformed_entry_refuses_before_endpoint
 test_pi_exclude_tools_read_failure_refuses_before_launch
 test_pi_exclude_tools_do_not_leak_across_homes_or_to_secondmates
 test_batch_forwards_shared_profile_flags
+test_code_mode_refuses_batch_dispatch
 test_claude_forwards_firstmate_config_dir_when_set
 test_lavish_server_address_is_exported_to_worker_launch
 test_lavish_absent_config_preserves_destination_ambient

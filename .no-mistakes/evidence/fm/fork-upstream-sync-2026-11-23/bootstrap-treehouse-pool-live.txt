@@ -1,0 +1,5 @@
+SCENARIO: bootstrap without treehouse-pool-report opt-in
+OBSERVED: no pool-report output (opt-in absent)
+SCENARIO: bootstrap with treehouse-pool-report opt-in
+TREEHOUSE_POOL_REPORT: test-leftover pool /tmp/fm-lab.BYrrST/pools/project-leftover
+TREEHOUSE_POOL_REPORT: scanned 1 pools under /tmp/fm-lab.BYrrST/pools

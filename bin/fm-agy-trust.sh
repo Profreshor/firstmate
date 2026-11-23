@@ -3,6 +3,8 @@
 # a ship/scout spawn is about to launch an agy crewmate into, so the worker
 # reaches its brief in the worktree instead of parking on the folder-trust
 # dialog and running its turn in agy's own scratch directory.
+# Also force showFeedbackSurvey=false so the post-turn survey cannot consume
+# steering input or leave lifecycle controls with an ambiguous endpoint.
 #
 # Usage: fm-agy-trust.sh <worktree> <project>
 #        fm-agy-trust.sh --secondmate-home <home> <id>
@@ -35,6 +37,7 @@
 # non-zero exit, never a warning and never a silent skip. Only the launching
 # user's own store is written, it must be a regular file this uid owns, every
 # unrelated key and entry is preserved, and the replacement is atomic.
+# An explicit showFeedbackSurvey=true is overwritten for supervised launches.
 set -u
 unset CDPATH \
   GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_INDEX_FILE \
@@ -179,6 +182,7 @@ const readStore = () => {
 const fingerprint = (buf) =>
   buf === null ? "absent" : crypto.createHash("sha256").update(buf).digest("hex");
 const listed = (root) =>
+  root.showFeedbackSurvey === false &&
   Array.isArray(root.trustedWorkspaces) && paths.every((p) => root.trustedWorkspaces.includes(p));
 const attempt = () => {
   const original = readStore();
@@ -198,6 +202,7 @@ const attempt = () => {
     throw new Error(`${store} has a non-array "trustedWorkspaces" value`);
   }
   if (listed(root)) return "recorded";
+  root.showFeedbackSurvey = false;
   for (const p of paths) {
     if (!root.trustedWorkspaces.includes(p)) root.trustedWorkspaces.push(p);
   }

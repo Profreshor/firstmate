@@ -387,7 +387,17 @@ test_agy_trust_registers_the_logical_and_resolved_worktree_paths() {
     || fail "registration did not preserve an unrelated store key"
   [ "$(agy_store_value "$store" allowNonWorkspaceAccess)" = true ] \
     || fail "registration did not preserve an unrelated boolean key"
+  [ "$(agy_store_value "$store" showFeedbackSurvey)" = false ] \
+    || fail "registration did not disable the feedback survey"
+  node -e 'const fs=require("node:fs");const p=process.argv[1];const j=JSON.parse(fs.readFileSync(p,"utf8"));j.showFeedbackSurvey=true;fs.writeFileSync(p,JSON.stringify(j));' "$store"
   out=$(run_agy_trust "$HOME_DIR" "$link" "$PROJ_DIR") || fail "repeat registration must succeed: $out"
+  [ "$(agy_store_value "$store" showFeedbackSurvey)" = false ] \
+    || fail "an already trusted worktree retained an explicitly enabled survey"
+  [ "$(agy_store_value "$store" model)" = '"Gemini 3.8 Flash (High)"' ] \
+    || fail "disabling the survey did not preserve an unrelated store key"
+  [ "$(agy_store_value "$store" allowNonWorkspaceAccess)" = true ] \
+    || fail "disabling the survey did not preserve an unrelated boolean key"
+  out=$(run_agy_trust "$HOME_DIR" "$link" "$PROJ_DIR") || fail "disabled-survey registration must succeed: $out"
   [ "$(agy_trusted_paths "$store" | grep -Fcx "$WT_DIR")" -eq 1 ] \
     || fail "repeat registration duplicated the worktree entry"
   pass "fm-agy-trust.sh: registers the logical and resolved worktree paths and preserves the store"
@@ -401,7 +411,9 @@ test_agy_trust_creates_a_missing_store() {
   out=$(run_agy_trust "$HOME_DIR" "$WT_DIR" "$PROJ_DIR") || fail "a missing store must be created: $out"
   [ -f "$store" ] || fail "no settings store was created at $store"
   assert_agy_trusted "$store" "$WT_DIR" "the worktree was not registered in the created store"
-  pass "fm-agy-trust.sh: creates agy's settings store when none exists"
+  [ "$(agy_store_value "$store" showFeedbackSurvey)" = false ] \
+    || fail "a new store did not disable the feedback survey"
+  pass "fm-agy-trust.sh: creates agy's settings store with the feedback survey disabled"
 }
 
 test_agy_trust_refuses_out_of_scope_paths() {

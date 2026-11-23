@@ -58,7 +58,7 @@ Antigravity CLI requires permission to read, edit, and execute files here.
 `agy --help` (1.2.0) lists no trust flag or pre-registration command, but agy honours a `trustedWorkspaces` entry written to `~/.gemini/antigravity-cli/settings.json` ahead of launch.
 Verified under a throwaway `HOME` holding a copy of `~/.gemini` (the real settings file was never written): a folder appended to that array by hand launched `--prompt-interactive` straight into its turn and rendered the reply with no dialog, while an unregistered sibling folder launched the same way parked on the dialog.
 agy compares the pane's logical working directory, not its resolved path: a symlinked cwd whose real path alone was registered still parked on the dialog, so `bin/fm-agy-trust.sh` records both the logical path and its resolved form when they differ.
-`bin/fm-spawn.sh` runs that helper before launch at the same point it pre-registers claude trust; the helper applies the same structural scope test (a linked worktree of the spawning project, never a primary checkout, a subdirectory, a plain directory, or the home directory), preserves every other key in the store, and writes atomically with a fingerprint check.
+`bin/fm-spawn.sh` runs that helper before launch at the same point it pre-registers claude trust; the helper applies the same structural scope test (a linked worktree of the spawning project, never a primary checkout, a subdirectory, a plain directory, or the home directory), preserves unrelated keys in the store, and writes atomically with a fingerprint check.
 A failed registration is a stderr warning rather than a refusal, because agy's dialog preselects the safe answer and the gate below can answer it.
 Two supervised Herdr runs in treehouse worktrees completed file-writing turns while the dialog was still unanswered at observation time (worker file and `done:` status line both verified on disk before Enter was ever sent to those panes).
 Isolated runs in untrusted `/tmp` directories never reached the workspace until Enter: the turn spun through exploratory tool calls in agy's own scratch directory instead, and only the queued prompt ran after the answer.
@@ -69,6 +69,28 @@ It polls the pane capture, answers the dialog with a single Enter the first time
 Because Herdr's native `working` verdict is known to coexist with an unanswered dialog, the gate is strict about order: a busy verdict counts as ready only when the worktree was pre-registered before launch or the dialog has already been seen and answered; on an unregistered path it keeps polling for the dialog instead of accepting the early busy verdict.
 When the brief cannot be confirmed to run within the window (an answered dialog never turns busy, a pre-trusted pane never turns busy, or an unregistered pane never shows the dialog), the spawn fails, records `failed:` in the task status, and closes the endpoint so no orphan worker survives outside task control.
 `tests/fm-agy-harness.test.sh` covers the helper's registration and scope refusals against a throwaway store, and drives a fake pane whose dialog decision reads the store the spawn just wrote: the pre-trusted launch with no dialog, a dialog that renders anyway answered exactly once, the premature busy verdict on an unregistered path waiting for the dialog, and both fail-and-close paths.
+
+## Post-turn feedback survey
+
+Operator verification on 2026-11-23 reported `How's the CLI experience so far?` with `[1] Good [2] Fine [3] Bad [0] Skip` after a worker turn.
+The survey consumed the first steering doorbell and left the endpoint ambiguous, so `fm-control` refused interrupt, exit, and relaunch.
+After the operator set `showFeedbackSurvey` to `false` in `~/.gemini/antigravity-cli/settings.json`, the next steer landed on the first attempt.
+The agy version and exact command used for that operator check were not recorded; this is supplied live evidence, not a new end-to-end run.
+The [agy harness reference](../../.agents/skills/harness-adapters/references/harness/agy.md#trust-and-where-the-decision-persists) owns the pre-launch policy.
+
+Portable regression command (2026-11-23; no agy binary required):
+
+```sh
+bash bin/fm-test-run.sh tests/fm-agy-harness.test.sh
+```
+
+The trust cases check a missing store, existing unrelated keys, an already trusted workspace with an explicitly enabled survey, and repeated registration.
+The settings cases passed with these exact output lines:
+
+```text
+ok - fm-agy-trust.sh: registers the logical and resolved worktree paths and preserves the store
+ok - fm-agy-trust.sh: creates agy's settings store with the feedback survey disabled
+```
 
 ## Model and effort
 

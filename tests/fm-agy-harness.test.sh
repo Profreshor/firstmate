@@ -569,6 +569,11 @@ echo "fake agy must never execute" >&2
 exit 9
 SH
   chmod +x "$fakebin/agy"
+  # Keep node available without inheriting its whole bin directory: on systems
+  # where node and a real agy share that directory, the missing-binary case
+  # would otherwise find the operator's installed agy after this shim is
+  # removed.
+  ln -s "$NODE_BIN" "$fakebin/node"
   fm_fake_exit0 "$fakebin" treehouse gh-axi gh
   printf '%s\n' "$fakebin"
 }
@@ -608,12 +613,11 @@ EOF
 }
 
 # The spawn drives the real bin/fm-agy-trust.sh and the fake tmux's trust
-# lookup under this base PATH, and both read agy's settings store with node,
-# which runners do not keep in the system bin dirs. Carry the directory the
-# invoking environment resolves node from, the fm-kimi-harness shape.
+# lookup under this base PATH, and both read agy's settings store with node.
+# Each fakebin above carries an explicit node shim so this fallback path cannot
+# accidentally expose a real agy installed alongside node.
 NODE_BIN=$(command -v node) || fail "test needs node"
-NODE_BIN_DIR=$(dirname "$NODE_BIN")
-BASE_PATH=${FM_TEST_BASE_PATH:-$NODE_BIN_DIR:/usr/bin:/bin:/usr/sbin:/sbin}
+BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
 
 run_agy_spawn() {
   local case_dir=$1 home=$2 proj=$3 wt=$4 fakebin=$5 id=$6

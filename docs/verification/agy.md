@@ -13,8 +13,9 @@ The skill tree rooted at [`.agents/skills/harness-adapters/SKILL.md`](../../.age
 | Platform | Linux x64 (Arch, kernel 7.2.3) |
 | Backend | Herdr, in an isolated non-`default` lab session (`fm-lab-firstmate-agy-ad-*` via `bin/fm-herdr-lab.sh`); the live `default` session was unchanged throughout |
 
-Every command below ran inside the disposable firstmate task worktree or the named Herdr lab session.
-No captain fleet state was touched.
+Unless a section says otherwise, the commands below ran inside the disposable firstmate task worktree or the named Herdr lab session.
+That lab evidence did not touch captain fleet state.
+The post-turn feedback-survey section separately records operator-supplied evidence from a captain setting.
 
 ## Detection: ancestry only, no marker
 

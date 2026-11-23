@@ -402,14 +402,15 @@ t_native_codex_threshold() {
 t_native_agy_threshold() {
   local d=$TMP_ROOT/nativeagy
   mkhome "$d"; mkfake "$d" agy '1.4.0'
+  mkfake "$d/old" agy '1.3.9'
   start_term "$d"
   env "${CLEAN_UNSET[@]}" REX_BLOCK=b1 FM_OSC7501_TTY="$TERM_SLAVE" \
-    PATH="$d/bin:$PATH" bash "$SCRIPT" arm \
+    PATH="$d/old/bin:$d/bin:$PATH" bash "$SCRIPT" arm \
     --task t27 --harness agy --backend rex --kind ship \
-    --state "$d/state" --config "$d/config" --agent-bin agy
+    --state "$d/state" --config "$d/config" --agent-bin "$d/bin/agy"
   sleep 0.3
-  assert_equals "" "$(cat "$d/cap" 2>/dev/null)" "native agy: terminal sees zero bytes"
-  [ -z "$(ls "$d/state"/.osc7501watch-* 2>/dev/null)" ] || fail "native agy 1.4.0 armed a watcher"
+  assert_equals "" "$(cat "$d/cap" 2>/dev/null)" "native agy: terminal sees zero bytes despite an older PATH agy"
+  [ -z "$(ls "$d/state"/.osc7501watch-* 2>/dev/null)" ] || fail "native agy 1.4.0 armed a watcher despite an older PATH agy"
   mkfake "$d" agy '1.3.9'
   env "${CLEAN_UNSET[@]}" REX_BLOCK=b1 FM_OSC7501_TTY="$TERM_SLAVE" \
     PATH="$d/bin:$PATH" bash "$SCRIPT" arm \

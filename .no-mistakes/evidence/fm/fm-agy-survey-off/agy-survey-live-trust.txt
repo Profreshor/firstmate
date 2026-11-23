@@ -1,0 +1,1 @@
+trusted: /home/curtis/.no-mistakes/worktrees/aa96bb817995/01M84PXK5H51XCD6670VP48HDE

@@ -27,7 +27,10 @@
 #      codex-cli >= 0.163.0 (openai/codex#52725, first released in
 #      rust-v0.163.0, verified 2026-11-01), and Grok >= 1.0.67 and Muse Code
 #      >= 1.4.11 (the lowest versions verified reporting on Rex,
-#      docs/verification/runtime-backends.md) send their own root records;
+#      docs/verification/runtime-backends.md), and Antigravity CLI >= 1.4.0
+#      (`agy changelog` dates its OSC 7501 reporting to 1.4.0; 1.5.15 seen
+#      writing app=antigravity records on herdr-core, 2026-11-23) send their
+#      own root records;
 #      a terminal keeps one root record per pane, so a firstmate record would
 #      only replace theirs. The probe runs --agent-bin; one of these
 #      harnesses whose version cannot be read counts as native, so no
@@ -262,6 +265,7 @@ osc_native() {
     codex) floor=0.163.0 ;;
     grok) floor=1.0.67 ;;
     muse) floor=1.4.11 ;;
+    agy) floor=1.4.0 ;;
     *) return 1 ;;
   esac
   ver=$(osc_probe_version "$2") || return 0

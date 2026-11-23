@@ -8013,6 +8013,7 @@ if [ "$RAW_LAUNCH" = 0 ]; then
   case "$HARNESS" in
     pi | pi-signed) OSC7501_AGENT_BIN=${PI_BIN:-} ;;
     muse) OSC7501_AGENT_BIN=${MUSE_BIN:-} ;;
+    agy) OSC7501_AGENT_BIN=${AGY_BIN:-} ;;
     *) OSC7501_AGENT_BIN=$HARNESS ;;
   esac
 else

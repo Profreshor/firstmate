@@ -636,6 +636,8 @@ test_agy_launch_carries_the_brief_with_model_effort_and_autonomy() {
   expect_code 0 "$rc" "agy spawn with a listed model should succeed"
   launch=$(cat "$CASE_DIR/launch.log")
   assert_contains "$launch" "$FAKEBIN_DIR/agy" "agy launch did not pin the resolved absolute binary"
+  assert_contains "$launch" "--agent-bin '$FAKEBIN_DIR/agy'" \
+    "agy OSC gate did not probe the resolved binary the launch runs"
   assert_contains "$launch" "--prompt-interactive" "agy launch did not carry the brief via --prompt-interactive"
   assert_contains "$launch" "--model 'gemini-3.8-flash-low'" "agy launch did not carry the requested model"
   assert_contains "$launch" "--effort 'low'" "agy launch did not carry the requested effort"

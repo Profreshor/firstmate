@@ -394,6 +394,41 @@ t_native_codex_threshold() {
   pass "native gate: codex >= 0.163.0 or of unreadable version arms nothing, older codex keeps the generic reporter"
 }
 
+# Antigravity CLI added its own OSC 7501 records in 1.4.0 (`agy changelog`).
+# Left to the generic reporter, a 1.4.0+ agy and the bridge take turns
+# replacing the pane's root record (app=antigravity, then app=firstmate-agy):
+# 1.4.0 arms nothing, 1.3.9 still gets the generic reporter, and an agy whose
+# version cannot be read is treated as native.
+t_native_agy_threshold() {
+  local d=$TMP_ROOT/nativeagy
+  mkhome "$d"; mkfake "$d" agy '1.4.0'
+  mkfake "$d/old" agy '1.3.9'
+  start_term "$d"
+  env "${CLEAN_UNSET[@]}" REX_BLOCK=b1 FM_OSC7501_TTY="$TERM_SLAVE" \
+    PATH="$d/old/bin:$d/bin:$PATH" bash "$SCRIPT" arm \
+    --task t27 --harness agy --backend rex --kind ship \
+    --state "$d/state" --config "$d/config" --agent-bin "$d/bin/agy"
+  sleep 0.3
+  assert_equals "" "$(cat "$d/cap" 2>/dev/null)" "native agy: terminal sees zero bytes despite an older PATH agy"
+  [ -z "$(ls "$d/state"/.osc7501watch-* 2>/dev/null)" ] || fail "native agy 1.4.0 armed a watcher despite an older PATH agy"
+  mkfake "$d" agy '1.3.9'
+  env "${CLEAN_UNSET[@]}" REX_BLOCK=b1 FM_OSC7501_TTY="$TERM_SLAVE" \
+    PATH="$d/bin:$PATH" bash "$SCRIPT" arm \
+    --task t27 --harness agy --backend rex --kind ship \
+    --state "$d/state" --config "$d/config" --agent-bin agy
+  local wpid
+  wpid=$(watcher_pid "$d/state") || fail "agy 1.3.9 armed no generic watcher"
+  mkfake "$d" agy 'agy dev build'
+  env "${CLEAN_UNSET[@]}" REX_BLOCK=b1 FM_OSC7501_TTY="$TERM_SLAVE" \
+    PATH="$d/bin:$PATH" bash "$SCRIPT" arm \
+    --task t27 --harness agy --backend rex --kind ship \
+    --state "$d/state" --config "$d/config" --agent-bin agy
+  wait_gone "$wpid" || fail "agy relaunch left the old generic reporter running"
+  [ -z "$(ls "$d/state"/.osc7501watch-* 2>/dev/null)" ] || fail "an agy with an unreadable version armed a watcher"
+  stop_term
+  pass "native gate: agy >= 1.4.0 or of unreadable version arms nothing, older agy keeps the generic reporter"
+}
+
 # --- shared root record --------------------------------------------------------
 
 # A native writer and the bridge share one root record. Codex's own working
@@ -1189,6 +1224,7 @@ fm_test_run \
   t_launch_without_agent_bin_skips \
   t_inplace_upgrade_reprobes_native \
   t_native_codex_threshold \
+  t_native_agy_threshold \
   t_unknown_activity_leaves_native_root \
   t_unknown_activity_keeps_record_honest \
   t_final_record_with_unknown_activity \

@@ -1,0 +1,8 @@
+scenario=native-agy-1.5.15-launch-gate
+agy_path=/home/linuxbrew/.linuxbrew/bin/agy
+agy_version=1.5.15
+reporter_exit=0
+pty_transcript_bytes=605
+generic_watcher_files=0
+result=stand-down
+generic_osc7501_sequences=0

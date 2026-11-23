@@ -387,7 +387,17 @@ test_agy_trust_registers_the_logical_and_resolved_worktree_paths() {
     || fail "registration did not preserve an unrelated store key"
   [ "$(agy_store_value "$store" allowNonWorkspaceAccess)" = true ] \
     || fail "registration did not preserve an unrelated boolean key"
+  [ "$(agy_store_value "$store" showFeedbackSurvey)" = false ] \
+    || fail "registration did not disable the feedback survey"
+  node -e 'const fs=require("node:fs");const p=process.argv[1];const j=JSON.parse(fs.readFileSync(p,"utf8"));j.showFeedbackSurvey=true;fs.writeFileSync(p,JSON.stringify(j));' "$store"
   out=$(run_agy_trust "$HOME_DIR" "$link" "$PROJ_DIR") || fail "repeat registration must succeed: $out"
+  [ "$(agy_store_value "$store" showFeedbackSurvey)" = false ] \
+    || fail "an already trusted worktree retained an explicitly enabled survey"
+  [ "$(agy_store_value "$store" model)" = '"Gemini 3.8 Flash (High)"' ] \
+    || fail "disabling the survey did not preserve an unrelated store key"
+  [ "$(agy_store_value "$store" allowNonWorkspaceAccess)" = true ] \
+    || fail "disabling the survey did not preserve an unrelated boolean key"
+  out=$(run_agy_trust "$HOME_DIR" "$link" "$PROJ_DIR") || fail "disabled-survey registration must succeed: $out"
   [ "$(agy_trusted_paths "$store" | grep -Fcx "$WT_DIR")" -eq 1 ] \
     || fail "repeat registration duplicated the worktree entry"
   pass "fm-agy-trust.sh: registers the logical and resolved worktree paths and preserves the store"
@@ -401,7 +411,9 @@ test_agy_trust_creates_a_missing_store() {
   out=$(run_agy_trust "$HOME_DIR" "$WT_DIR" "$PROJ_DIR") || fail "a missing store must be created: $out"
   [ -f "$store" ] || fail "no settings store was created at $store"
   assert_agy_trusted "$store" "$WT_DIR" "the worktree was not registered in the created store"
-  pass "fm-agy-trust.sh: creates agy's settings store when none exists"
+  [ "$(agy_store_value "$store" showFeedbackSurvey)" = false ] \
+    || fail "a new store did not disable the feedback survey"
+  pass "fm-agy-trust.sh: creates agy's settings store with the feedback survey disabled"
 }
 
 test_agy_trust_refuses_out_of_scope_paths() {
@@ -557,6 +569,11 @@ echo "fake agy must never execute" >&2
 exit 9
 SH
   chmod +x "$fakebin/agy"
+  # Keep node available without inheriting its whole bin directory: on systems
+  # where node and a real agy share that directory, the missing-binary case
+  # would otherwise find the operator's installed agy after this shim is
+  # removed.
+  ln -s "$NODE_BIN" "$fakebin/node"
   fm_fake_exit0 "$fakebin" treehouse gh-axi gh
   printf '%s\n' "$fakebin"
 }
@@ -596,12 +613,11 @@ EOF
 }
 
 # The spawn drives the real bin/fm-agy-trust.sh and the fake tmux's trust
-# lookup under this base PATH, and both read agy's settings store with node,
-# which runners do not keep in the system bin dirs. Carry the directory the
-# invoking environment resolves node from, the fm-kimi-harness shape.
+# lookup under this base PATH, and both read agy's settings store with node.
+# Each fakebin above carries an explicit node shim so this fallback path cannot
+# accidentally expose a real agy installed alongside node.
 NODE_BIN=$(command -v node) || fail "test needs node"
-NODE_BIN_DIR=$(dirname "$NODE_BIN")
-BASE_PATH=${FM_TEST_BASE_PATH:-$NODE_BIN_DIR:/usr/bin:/bin:/usr/sbin:/sbin}
+BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
 
 run_agy_spawn() {
   local case_dir=$1 home=$2 proj=$3 wt=$4 fakebin=$5 id=$6

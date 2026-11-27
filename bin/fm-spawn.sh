@@ -75,8 +75,8 @@
 #   backend, kind, project or home, worktree, endpoint - comes from the task's
 #   validated state/<id>.meta, so --backend, --scout, --secondmate, a project
 #   positional, and batch pairs are all refused alongside it; only harness,
-#   model, effort, and a declared Claude account may change, which is what
-#   makes a harness switch one ordinary relaunch. It refuses unless the
+#   model, effort, and a declared Claude or Codex account may change, which
+#   is what makes a harness switch one ordinary relaunch. It refuses unless the
 #   recorded endpoint is positively agent-free on a backend with both a
 #   recovery-grade agent-state classifier and replacement-agent support
 #   (tmux, herdr, or herdr-core), and clears the previous harness's per-task wiring
@@ -198,10 +198,11 @@
 #   metadata are unchanged.
 #   A clean projected create and an exact resume both hold the one
 #   session-scoped presentation-order lock (keyed by named session plus
-#   canonical socket, outside any home's state/) through launch handoff.
-#   On contention a create makes one bounded attempt and falls back to the
-#   ordinary flat layout before any projection mutation. A resume refuses by
-#   default on the same contention (it does not degrade flat; a concurrent
+#   canonical socket, outside any home's state/) through the projected layout
+#   mutation, releasing it before worktree allocation, remaining spawn setup,
+#   and agent launch. On contention a create makes one bounded attempt and falls back
+#   to the ordinary flat layout before any projection mutation. A resume refuses
+#   by default on the same contention (it does not degrade flat; a concurrent
 #   resume is a hard failure). Pass --herdr-resume-lock-wait to opt that
 #   resume into waiting for the lock instead, so two concurrent recoveries
 #   can serialize and each still replace its own exact husk. The flag acts
@@ -365,6 +366,11 @@
 #   itself a linked worktree of the project repository still launches. A pane
 #   that never reaches an isolated worktree refuses at the end of that wait,
 #   naming the last path seen and why it was rejected.
+#   The root home acquires every task slot (the pane's `treehouse get` and the
+#   Herdr and t3code durable leases alike) from Treehouse's default pool; a
+#   local secondmate home passes `--root` so its slot comes from a pool outside
+#   the Firstmate home and is a worktree of that home's own clone, never
+#   another home's (bin/fm-wake-lib.sh's fm_treehouse_spawn_root owns the choice).
 #   That placement is proven only at launch. Every ship or scout therefore
 #   receives `FM_TASK_ID=<task-id>` before launch, on the same backend-specific
 #   environment channel as GOTMPDIR, and bin/fm-test-run.sh refuses to execute the
@@ -541,13 +547,15 @@
 #   Pins are never inherited; remote per-mate overrides refuse locally.
 #   T3 Code refuses a pin because its provider instance owns the account.
 #   bin/fm-worker-account-lib.sh owns parsing, the check, and the shed list.
-# Claude account list (config/claude-accounts, --account <entry>):
-#   Opt-in and Claude-only. When the list is present, a Claude ship or scout
-#   spawn must name one declared entry with --account, chosen at intake, and
-#   that entry is checked, launched, and recorded exactly like a pin; a
-#   relaunch reuses the recorded entry unless --account moves it. Without the
-#   list, --account refuses and nothing else changes. docs/configuration.md
-#   "Several Claude accounts" owns the contract.
+# Declared account lists (config/claude-accounts, config/codex-accounts,
+# --account <entry>):
+#   Opt-in, per runner. When a runner's list is present, a ship or scout spawn
+#   of that runner must name one declared entry with --account, chosen at
+#   intake, and that entry is checked, launched, and recorded exactly like a
+#   pin (a Codex entry selects CODEX_HOME); a relaunch reuses the recorded entry
+#   unless --account moves it. Without the list, --account refuses and nothing
+#   else changes. docs/configuration.md "Several Claude accounts" and "Several
+#   Codex accounts" own the contract.
 # Per-secondmate omp profile (config/secondmate-accounts/<id>/omp-profile):
 #   Opt-in, and read only for a local secondmate's own omp agent;
 #   bin/fm-omp-profile-lib.sh owns the file and its refusals. A pinned launch
@@ -1274,10 +1282,10 @@ fi
   echo "error: --account requires a non-empty value" >&2
   exit 1
 }
-# A secondmate, local or remote, launches on its own per-mate pin, so --account
-# is refused here, before the remote route could ignore it.
+# A secondmate, local or remote, never launches on a declared account list, so
+# --account is refused here, before the remote route could ignore it.
 [ "$ACCOUNT_SET" -eq 0 ] || [ "$KIND" != secondmate ] || {
-  echo "error: --account applies to ships and scouts; secondmate ${POS[0]:-} launches on its own config/secondmate-accounts/<id>/claude-account pin" >&2
+  echo "error: --account applies to ships and scouts; secondmate ${POS[0]:-} never launches on a declared account list (a Claude secondmate uses its own config/secondmate-accounts/<id>/claude-account pin)" >&2
   exit 1
 }
 # A parent-delivered carrier replaces this home's own resolution, so it is
@@ -1776,6 +1784,7 @@ SPAWN_TREEHOUSE_PROJECT_LOCK=
 SPAWN_TREEHOUSE_PROJECT_LOCK_HELD=0
 SPAWN_LANE_ADMISSION_LOCK=
 SPAWN_LANE_ADMISSION_LOCK_HELD=0
+SPAWN_TREEHOUSE_ROOT=
 SPAWN_SLOT_CLAIMED=0
 SPAWN_FRESH_ENDPOINT_OPENED=0
 SPAWN_FRESH_WIRING_PENDING=0
@@ -2789,6 +2798,14 @@ else
 fi
 [ -z "$HARNESS_ARG" ] || ARG3=$HARNESS_ARG
 
+spawn_treehouse() {
+  if [ -n "$SPAWN_TREEHOUSE_ROOT" ]; then
+    treehouse --root "$SPAWN_TREEHOUSE_ROOT" "$@"
+  else
+    treehouse "$@"
+  fi
+}
+
 shell_quote() {
   printf "'"
   printf '%s' "$1" | sed "s/'/'\\\\''/g"
@@ -3634,9 +3651,9 @@ RAW_COMMAND=
 [ "$RAW_LAUNCH" = 0 ] || RAW_COMMAND=$ARG3
 WORKER_ACCOUNT_MATE=
 [ "$KIND" != secondmate ] || WORKER_ACCOUNT_MATE=$ID
-# A declared Claude account list (config/claude-accounts) needs the entry this
-# launch spends: --account on a fresh spawn, and on a relaunch that flag or
-# else the account the task already records.
+# A declared account list (config/claude-accounts, config/codex-accounts)
+# needs the entry this launch spends: --account on a fresh spawn, and on a
+# relaunch that flag or else the account the task already records.
 WORKER_ACCOUNT_REQUEST=$ACCOUNT_ARG
 if [ "$RELAUNCH" -eq 1 ]; then
   WORKER_ACCOUNT_REQUEST=$(fm_worker_account_relaunch_request "$HARNESS" "$CONFIG" "$RELAUNCH_PRIOR_HARNESS" \
@@ -4378,6 +4395,12 @@ if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ] &&
   fi
   SPAWN_TREEHOUSE_PROJECT_LOCK_HELD=1
 fi
+if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
+  SPAWN_TREEHOUSE_ROOT=$(fm_treehouse_spawn_root "$FM_HOME") || {
+    echo "error: could not resolve which Treehouse pool this home's clone of $PROJ_ABS uses" >&2
+    exit 1
+  }
+fi
 if [ -n "$SPAWN_PROJECT_CAPACITY" ]; then
   if ! fm_project_capacity_occupants "$SPAWN_TREEHOUSE_PROJECT_LOCK" "$PROJ_ABS" "$STATE" "$ID"; then
     echo "error: spawn refused: project $(basename "$PROJ_ABS") declares a capacity of $SPAWN_PROJECT_CAPACITY, but this machine's task records cannot all be read to count it ($FM_PROJECT_CAPACITY_ERROR)" >&2
@@ -4978,6 +5001,7 @@ herdr_spawn_crew_place() { # <session> <pane-cap> <cwd> [<launcher-pane-id>]
   HERDR_PROJECTION_ABORT_SESSION=$session
   HERDR_PROJECTION_ABORT_TASK_PANE=$HERDR_PANE_ID
   HERDR_PROJECTION_ABORT_SEEDED_PANE=""
+  spawn_herdr_presentation_order_lock_release
 }
 
 herdr_projection_meta_field_exact() { # <meta> <key>
@@ -5438,12 +5462,15 @@ else
       crew:*)
         # The crew layout: a split pane in this home's one crew workspace
         # (docs/herdr-backend.md "Crew workspace"). It shares the projection's
-        # session lock, abort cleanup of the exact new pane, and lock release
-        # after launch, so HERDR_PROJECTED also covers it below.
+        # session lock and abort cleanup of the exact new pane, and like the
+        # projection it releases that lock once the pane is placed.
         herdr_spawn_crew_place "$(fm_backend_herdr_session)" "${FM_BACKEND_HERDR_PRESENTATION_PREFERENCE#crew:}" "$PROJ_ABS"
         HERDR_PROJECTED=1
         ;;
       esac
+    fi
+    if [ "$HERDR_PROJECTED" -eq 1 ]; then
+      spawn_herdr_presentation_order_lock_release
     fi
     if [ "$HERDR_PROJECTED" -ne 1 ]; then
       HERDR_CONTAINER_RAW=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_container_ensure "$PROJ_ABS" "$HERDR_LAUNCHER_RELATIONSHIP") || exit 1
@@ -5633,7 +5660,7 @@ EOF
       # A durable lease (bin/fm-home-seed.sh's pattern): there is no pane to run
       # the interactive `treehouse get` in, and a slot a live T3 thread points at
       # must never be handed on while that thread could re-create it.
-      WT=$(cd "$PROJ_ABS" && treehouse get --lease --lease-holder "$ID") || {
+      WT=$(cd "$PROJ_ABS" && spawn_treehouse get --lease --lease-holder "$ID") || {
         echo "error: treehouse get --lease failed to lease a worktree for $ID from $PROJ_ABS" >&2
         exit 1
       }
@@ -5756,7 +5783,7 @@ spawn_send_key() { # <target> <key>
 # outlives its pane, so an aborted spawn returns it (spawn_abort_cleanup) and
 # bin/fm-teardown.sh returns it for a finished task.
 spawn_lease_herdr_slot() {
-  WT=$(cd "$PROJ_ABS" && treehouse get --lease --lease-holder "$ID") || {
+  WT=$(cd "$PROJ_ABS" && spawn_treehouse get --lease --lease-holder "$ID") || {
     echo "error: treehouse get --lease failed to lease a worktree for $ID from $PROJ_ABS; $(spawn_endpoint_hint)" >&2
     exit 1
   }
@@ -6302,7 +6329,11 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   elif [ "$BACKEND" = herdr ]; then
     spawn_lease_herdr_slot
   else
-    spawn_send_text_line "$WT_TARGET" 'treehouse get'
+    if [ -n "$SPAWN_TREEHOUSE_ROOT" ]; then
+      spawn_send_text_line "$WT_TARGET" "treehouse --root $(shell_quote "$SPAWN_TREEHOUSE_ROOT") get"
+    else
+      spawn_send_text_line "$WT_TARGET" 'treehouse get'
+    fi
 
     # Wait for the treehouse subshell: the pane's cwd moves from the project to the worktree.
     # Target the stable window id, not the name: if the name is ever lost (e.g. an
@@ -7892,16 +7923,18 @@ esac
 # Forward firstmate's own resolved store onto the claude launch so the crewmate
 # uses the same credential/config firstmate is authenticated with. Only when set;
 # an unset value is the single-store default and needs no prefix.
-# A home's worker account pin replaces that forwarding: the launch names the
-# pinned root (or unsets the variable for the ordinary Claude account) and
-# sheds the environment credentials Claude ranks above the root's login.
+# A home's worker account pin or declared account replaces that forwarding:
+# the launch names the selected root (or unsets the variable for the ordinary
+# account) and sheds the environment credentials the runner would spend
+# instead of the root's login.
 if [ -n "$WORKER_ACCOUNT" ]; then
   case "$HARNESS" in
-  claude)
+  claude | codex)
+    WORKER_ACCOUNT_VAR=$(fm_worker_account_root_var "$HARNESS")
     if [ -n "$WORKER_ACCOUNT_ROOT" ]; then
-      LAUNCH="$(fm_worker_account_claude_shed) CLAUDE_CONFIG_DIR=$(shell_quote "$WORKER_ACCOUNT_ROOT") $LAUNCH"
+      LAUNCH="$(fm_worker_account_shed "$HARNESS") $WORKER_ACCOUNT_VAR=$(shell_quote "$WORKER_ACCOUNT_ROOT") $LAUNCH"
     else
-      LAUNCH="$(fm_worker_account_claude_shed) -u CLAUDE_CONFIG_DIR $LAUNCH"
+      LAUNCH="$(fm_worker_account_shed "$HARNESS") -u $WORKER_ACCOUNT_VAR $LAUNCH"
     fi
     ;;
   pi | pi-signed)
@@ -8303,7 +8336,6 @@ else
   sleep 0.3
   if [ "${HERDR_PROJECTED:-0}" -eq 1 ]; then
     HERDR_PROJECTION_ABORT_CLEANUP=0
-    spawn_herdr_presentation_order_lock_release
   fi
   if [ "$BACKEND" != herdr-core ] && ! spawn_send_key "$T" Enter; then
     [ "$ORCA_LAUNCH_ENV_ENABLED" != 1 ] || spawn_orca_launch_send_fail
